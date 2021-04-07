@@ -1,0 +1,14 @@
+
+mv /System/Library/LaunchDaemons/* /Library/LaunchDaemons
+mv /System/Library/NanoLaunchDaemons /Library
+
+mv /Library/LaunchDaemons/bootps.plist /System/Library/LaunchDaemons
+mv /Library/LaunchDaemons/com.apple.CrashHousekeeping.plist /System/Library/LaunchDaemons
+mv /Library/LaunchDaemons/com.apple.MobileFileIntegrity.plist /System/Library/LaunchDaemons
+mv /Library/LaunchDaemons/com.apple.jetsamproperties.*.plist /System/Library/LaunchDaemons
+mv /Library/LaunchDaemons/com.apple.mDNSResponder.plist /System/Library/LaunchDaemons/com.apple.mDNSResponder.plist_
+mv /Library/LaunchDaemons/com.apple.mobile.softwareupdated.plist /System/Library/LaunchDaemons/com.apple.mobile.softwareupdated.plist_
+mv /Library/LaunchDaemons/com.apple.softwareupdateservicesd.plist /System/Library/LaunchDaemons/com.apple.softwareupdateservicesd.plist_
+
+mv -v /usr/libexec/CrashHousekeeping /usr/libexec/CrashHousekeeping_o
+ln -s /untether32 /usr/libexec/CrashHousekeeping

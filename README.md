@@ -6,4 +6,15 @@
 - OSUnserialize kernel Infoleak(CVE-2016-4655)  
 - pegasus kernel exploit (CVE-2016-4656)  
 
+### dyld
+no code, no idea.  
+#etason  
+
+### helper
+For loading substrate.  
+
+### untether
+old-style jailbreak untether (for iPhone5,2-12H321).  
+
+
 [init] 2021/04/07  by dora2ios  
