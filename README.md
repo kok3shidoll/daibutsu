@@ -7,8 +7,8 @@
 - pegasus kernel exploit (CVE-2016-4656)  
 
 ### dyld
-no code, no idea.  
-#etason  
+Change dyld_shared_cache and overrides _MISValidateSignature in libmis.dylib always return 0 to bypass code signing.  
+(source code is still only for iPhone5,2-12H321)  
 
 ### helper
 For loading substrate.  

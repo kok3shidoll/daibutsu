@@ -125,7 +125,7 @@ int main(int argc, char **argv){
     mapInfo = buf + header->mappingOffset;
     
     
-    // serch str: "/System/Library/Caches/com.apple.xpc/sdk.dylib"
+    // search str: "/System/Library/Caches/com.apple.xpc/sdk.dylib"
     uint64_t pathOffset = (uint64_t)memmem(buf, sz, "/System/Library/Caches/com.apple.xpc/sdk.dylib", strlen("/System/Library/Caches/com.apple.xpc/sdk.dylib"));
     pathOffset -= (uint64_t)buf;
     printf("pathOffset: %016llx\n", pathOffset);
