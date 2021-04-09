@@ -2,3 +2,4 @@
 .DS_Store
 dyld_shared_cache_armv7s*
 untether/untether32
+dyld/tmp
