@@ -190,7 +190,7 @@ int main(int argc, char **argv){
     /* header haxx */
     printf("\n");
     
-    // 1, mappingCount += 2
+    // 1, mappingCount += 3
     uint32_t newCount = header->mappingCount + 3;
     printf("[RemapHeader] newCount: %08x\n", newCount);
     *(uint32_t*)(newBuf+offsetof(struct dyld_cache_header, mappingCount)) = newCount;
