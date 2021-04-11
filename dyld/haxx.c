@@ -99,28 +99,28 @@ int main(int argc, char **argv){
     
     struct dyld_cache_header *header = buf;
     
-    printf("magic: %s\n", header->magic);
-    printf("mappingOffset: %08x\n", header->mappingOffset);
-    printf("mappingCount: %u\n", header->mappingCount);
-    printf("imagesOffset: %08x\n", header->imagesOffset);
-    printf("imagesCount: %u\n", header->imagesCount);
-    printf("dyldBaseAddress: %016llx\n", header->dyldBaseAddress);
-    printf("codeSignatureOffset: %016llx\n", header->codeSignatureOffset);
-    printf("codeSignatureSize: %016llx\n", header->codeSignatureSize);
-    printf("slideInfoOffset: %016llx\n", header->slideInfoOffset);
-    printf("slideInfoSize: %016llx\n", header->slideInfoSize);
-    printf("localSymbolsOffset: %016llx\n", header->localSymbolsOffset);
-    printf("localSymbolsSize: %016llx\n", header->localSymbolsSize);
+    printf("magic               : %s\n", header->magic);
+    printf("mappingOffset       : %08x\n", header->mappingOffset);
+    printf("mappingCount        : %u\n", header->mappingCount);
+    printf("imagesOffset        : %08x\n", header->imagesOffset);
+    printf("imagesCount         : %u\n", header->imagesCount);
+    printf("dyldBaseAddress     : %016llx\n", header->dyldBaseAddress);
+    printf("codeSignatureOffset : %016llx\n", header->codeSignatureOffset);
+    printf("codeSignatureSize   : %016llx\n", header->codeSignatureSize);
+    //printf("slideInfoOffset     : %016llx\n", header->slideInfoOffset);
+    //printf("slideInfoSize       : %016llx\n", header->slideInfoSize);
+    //printf("localSymbolsOffset  : %016llx\n", header->localSymbolsOffset);
+    //printf("localSymbolsSize    : %016llx\n", header->localSymbolsSize);
     printf("\n");
     
     struct dyld_cache_mapping_info *mapInfo = buf + header->mappingOffset;
     for (int i=0; i < header->mappingCount; i++) {
         printf("dyld_cache_mapping_info [%i]\n", i);
-        printf("address: %016llx\n",  mapInfo->address);
-        printf("size: %016llx\n",  mapInfo->size);
-        printf("fileOffset: %016llx\n",  mapInfo->fileOffset);
-        printf("maxProt: %08x\n",  mapInfo->maxProt);
-        printf("initProt: %08x\n",  mapInfo->initProt);
+        printf("address    : %016llx\n",  mapInfo->address);
+        printf("size       : %016llx\n",  mapInfo->size);
+        printf("fileOffset : %016llx\n",  mapInfo->fileOffset);
+        printf("maxProt    : %08x\n",  mapInfo->maxProt);
+        printf("initProt   : %08x\n",  mapInfo->initProt);
         mapInfo++;
         printf("\n");
     }
@@ -130,45 +130,42 @@ int main(int argc, char **argv){
     // search str: "/System/Library/Caches/com.apple.xpc/sdk.dylib"
     uint64_t pathOffset = (uint64_t)memmem(buf, sz, "/System/Library/Caches/com.apple.xpc/sdk.dylib", strlen("/System/Library/Caches/com.apple.xpc/sdk.dylib"));
     pathOffset -= (uint64_t)buf;
-    printf("pathOffset: %016llx\n", pathOffset);
+    printf("pathOffset : %016llx\n", pathOffset);
     int pathCount;
     
     struct dyld_cache_image_info *imageInfo = buf + header->imagesOffset;
     for (int i=0; i < header->imagesCount; i++) {
         //printf("dyld_cache_image_info [%i]\n", i);
-        //printf("address: %016llx\n", imageInfo->address);
-        //printf("modTime: %016llx\n", imageInfo->modTime);
-        //printf("inode: %016llx\n", imageInfo->inode);
-        //printf("pathFileOffset: %08x\n", imageInfo->pathFileOffset);
+        //printf("address        : %016llx\n", imageInfo->address);
+        //printf("modTime        : %016llx\n", imageInfo->modTime);
+        //printf("inode          : %016llx\n", imageInfo->inode);
+        //printf("pathFileOffset : %08x\n", imageInfo->pathFileOffset);
         if(imageInfo->pathFileOffset == pathOffset) pathCount = i;
-        //printf("path: %s\n", (char *)buf+imageInfo->pathFileOffset);
+        //printf("path           : %s\n", (char *)buf+imageInfo->pathFileOffset);
         imageInfo++;
-        //printf("pad: %08x\n", imageInfo->pad);
+        //printf("pad            : %08x\n", imageInfo->pad);
         //printf("\n");
     }
-    printf("pathCount: %d\n", pathCount);
+    printf("pathCount  : %d\n", pathCount);
     
     imageInfo = buf + header->imagesOffset;
+    printf("\n");
+    
+    
+    uint64_t pad = 0x2000;
+    uint64_t dataSize = 0x4000;
     
     uint64_t baseAddr = mapInfo->address;
     uint64_t imageInfo_baseAddr = imageInfo->address;
-    printf("baseAddr: %016llx\n", mapInfo->address);
-    printf("imageInfo_baseAddr: %016llx\n", imageInfo_baseAddr);
     uint64_t headerSize = imageInfo_baseAddr - baseAddr;
-    uint64_t pad = 0x2000;
-    uint64_t dataSize = 0x4000;
-    printf("headerSize: %016llx\n", headerSize);
-    
-    
-    
-    /*
-     * origlen: 19BB02D3
-     * maxlen : 19BBE000
-     * expandSize: c000
-     */
-    
     size_t newSize = (sz&~0xfff) + pad + headerSize + dataSize;
-    printf("newSize: %zx\n", newSize);
+    
+    printf("baseAddr       : %016llx\n", mapInfo->address);
+    printf("imageInfo_base : %016llx\n", imageInfo_baseAddr);
+    printf("headerSize     : %016llx\n", headerSize);
+    printf("newSize        : %zx\n", newSize);
+    printf("\n");
+    
     
     // create newBuf
     void *newBuf = malloc(newSize);
@@ -177,31 +174,32 @@ int main(int argc, char **argv){
     
     /* copy fakeheader */
     uint64_t newHeaderOffset = ((sz&~0xfff)+pad);
-    printf("header: %016llx -> %016llx\n", (uint64_t)0, newHeaderOffset);
+    printf("[memcpy] header : %016llx -> %016llx\n", (uint64_t)0, newHeaderOffset);
     memcpy(newBuf+newHeaderOffset, buf, headerSize);
     
     /* copy fakedata */
     uint64_t dataOffset = (exportTableOffset&~0xfff);
     uint64_t newDataOffset = ((sz&~0xfff)+pad+headerSize);
-    printf("data: %016llx -> %016llx\n", dataOffset, newDataOffset);
+    printf("[memcpy] data   : %016llx -> %016llx\n", dataOffset, newDataOffset);
     memcpy(newBuf+newDataOffset, buf+dataOffset, dataSize);
+    printf("\n");
     
     
     /* header haxx */
-    printf("\n");
     
     // 1, mappingCount += 3
     uint32_t newCount = header->mappingCount + 3;
-    printf("[RemapHeader] newCount: %08x\n", newCount);
+    printf("[RemapHeader1] newCount: %08x\n", newCount);
     *(uint32_t*)(newBuf+offsetof(struct dyld_cache_header, mappingCount)) = newCount;
+    printf("\n");
     
     // 2, imagesOffset = imagesOffset + 3*sizeof(struct dyld_cache_mapping_info)
     uint32_t newImgOffset  = header->imagesOffset + 3*sizeof(struct dyld_cache_mapping_info);
-    printf("[RemapHeader] newImgOffset: %08x\n", newImgOffset);
+    printf("[RemapHeader2] newImgOffset: %08x\n", newImgOffset);
     *(uint32_t*)(newBuf+offsetof(struct dyld_cache_header, imagesOffset)) = newImgOffset;
+    printf("\n");
     
     // 3, remap header
-    printf("\n");
     
     // flags
 #define F_R (1)
@@ -215,7 +213,7 @@ int main(int argc, char **argv){
     
     // dyld_cache_mapping_info[i]
     for(int i=0;i<newCount;i++){
-        printf("[RemapHeader] dyld_cache_mapping_info [%i]\n", i);
+        printf("[RemapHeader3] dyld_cache_mapping_info [%i]\n", i);
         
         
         if(i==0){
@@ -223,28 +221,30 @@ int main(int argc, char **argv){
             nextSize = mapInfo->size - headerSize;
             nextOffset = headerSize;
             
-            printf("size: %016llx -> %016llx\n",  mapInfo->size, headerSize);
+            printf("address    : %016llx\n", mapInfo->address);
+            
+            printf("size       : %016llx -> %016llx\n",  mapInfo->size, headerSize);
             *(uint64_t*)(newBuf
                          + (header->mappingOffset)
                          + (i*sizeof(struct dyld_cache_mapping_info))
                          + (offsetof(struct dyld_cache_mapping_info, size))
                          ) = headerSize;
             
-            printf("fileOffset: %016llx -> %016llx\n",  mapInfo->fileOffset, newHeaderOffset);
+            printf("fileOffset : %016llx -> %016llx\n",  mapInfo->fileOffset, newHeaderOffset);
             *(uint64_t*)(newBuf
                          + (header->mappingOffset)
                          + (i*sizeof(struct dyld_cache_mapping_info))
                          + (offsetof(struct dyld_cache_mapping_info, fileOffset))
                          ) = newHeaderOffset;
             
-            printf("maxProt: %08x -> %08x\n",  mapInfo->maxProt,  (F_R));
+            printf("maxProt    : %08x -> %08x\n",  mapInfo->maxProt,  (F_R));
             *(uint32_t*)(newBuf
                          + (header->mappingOffset)
                          + (i*sizeof(struct dyld_cache_mapping_info))
                          + (offsetof(struct dyld_cache_mapping_info, maxProt))
                          ) = (F_R);
             
-            printf("initProt: %08x -> %08x\n",  mapInfo->initProt, (F_R));
+            printf("initProt   : %08x -> %08x\n",  mapInfo->initProt, (F_R));
             *(uint32_t*)(newBuf
                          + (header->mappingOffset)
                          + (i*sizeof(struct dyld_cache_mapping_info))
@@ -253,35 +253,35 @@ int main(int argc, char **argv){
         }
         
         if(i==1){
-            printf("address: %016llx -> %016llx\n",  mapInfo->address, nextBase);
+            printf("address    : %016llx -> %016llx\n",  mapInfo->address, nextBase);
             *(uint64_t*)(newBuf
                          + (header->mappingOffset)
                          + (i*sizeof(struct dyld_cache_mapping_info))
                          + (offsetof(struct dyld_cache_mapping_info, address))
                          ) = nextBase;
             
-            printf("size: %016llx -> %016llx\n",  mapInfo->size, nextSize);
+            printf("size       : %016llx -> %016llx\n",  mapInfo->size, nextSize);
             *(uint64_t*)(newBuf
                          + (header->mappingOffset)
                          + (i*sizeof(struct dyld_cache_mapping_info))
                          + (offsetof(struct dyld_cache_mapping_info, size))
                          ) = nextSize;
             
-            printf("fileOffset: %016llx -> %016llx\n",  mapInfo->fileOffset, nextOffset);
+            printf("fileOffset : %016llx -> %016llx\n",  mapInfo->fileOffset, nextOffset);
             *(uint64_t*)(newBuf
                          + (header->mappingOffset)
                          + (i*sizeof(struct dyld_cache_mapping_info))
                          + (offsetof(struct dyld_cache_mapping_info, fileOffset))
                          ) = nextOffset;
             
-            printf("maxProt: %08x -> %08x\n",  mapInfo->maxProt, (mapInfo-1)->maxProt);
+            printf("maxProt    : %08x -> %08x\n",  mapInfo->maxProt, (mapInfo-1)->maxProt);
             *(uint32_t*)(newBuf
                          + (header->mappingOffset)
                          + (i*sizeof(struct dyld_cache_mapping_info))
                          + (offsetof(struct dyld_cache_mapping_info, maxProt))
                          ) = (mapInfo-1)->maxProt;
             
-            printf("initProt: %08x -> %08x\n",  mapInfo->initProt, (mapInfo-1)->maxProt);
+            printf("initProt   : %08x -> %08x\n",  mapInfo->initProt, (mapInfo-1)->maxProt);
             *(uint32_t*)(newBuf
                          + (header->mappingOffset)
                          + (i*sizeof(struct dyld_cache_mapping_info))
@@ -291,35 +291,35 @@ int main(int argc, char **argv){
         }
         
         if(i==2){
-            printf("address: %016llx -> %016llx\n",  mapInfo->address, (mapInfo-1)->address);
+            printf("address    : %016llx -> %016llx\n",  mapInfo->address, (mapInfo-1)->address);
             *(uint64_t*)(newBuf
                          + (header->mappingOffset)
                          + (i*sizeof(struct dyld_cache_mapping_info))
                          + (offsetof(struct dyld_cache_mapping_info, address))
                          ) = (mapInfo-1)->address;
             
-            printf("size: %016llx -> %016llx\n",  mapInfo->size, (mapInfo-1)->size);
+            printf("size       : %016llx -> %016llx\n",  mapInfo->size, (mapInfo-1)->size);
             *(uint64_t*)(newBuf
                          + (header->mappingOffset)
                          + (i*sizeof(struct dyld_cache_mapping_info))
                          + (offsetof(struct dyld_cache_mapping_info, size))
                          ) = (mapInfo-1)->size;
             
-            printf("fileOffset: %016llx -> %016llx\n",  mapInfo->fileOffset, (mapInfo-1)->fileOffset);
+            printf("fileOffset : %016llx -> %016llx\n",  mapInfo->fileOffset, (mapInfo-1)->fileOffset);
             *(uint64_t*)(newBuf
                          + (header->mappingOffset)
                          + (i*sizeof(struct dyld_cache_mapping_info))
                          + (offsetof(struct dyld_cache_mapping_info, fileOffset))
                          ) = (mapInfo-1)->fileOffset;
             
-            printf("maxProt: %08x -> %08x\n",  mapInfo->maxProt, (mapInfo-1)->maxProt);
+            printf("maxProt    : %08x -> %08x\n",  mapInfo->maxProt, (mapInfo-1)->maxProt);
             *(uint32_t*)(newBuf
                          + (header->mappingOffset)
                          + (i*sizeof(struct dyld_cache_mapping_info))
                          + (offsetof(struct dyld_cache_mapping_info, maxProt))
                          ) = (mapInfo-1)->maxProt;
             
-            printf("initProt: %08x -> %08x\n",  mapInfo->initProt, (mapInfo-1)->maxProt);
+            printf("initProt   : %08x -> %08x\n",  mapInfo->initProt, (mapInfo-1)->maxProt);
             *(uint32_t*)(newBuf
                          + (header->mappingOffset)
                          + (i*sizeof(struct dyld_cache_mapping_info))
@@ -330,14 +330,14 @@ int main(int argc, char **argv){
         if(i==3){
             nextBase = (mapInfo-1)->address + dataOffset-(mapInfo-1)->fileOffset;
             nextSize = dataOffset-(mapInfo-1)->fileOffset;
-            printf("address: %016llx\n", (mapInfo-1)->address);
+            printf("address    : %016llx\n", (mapInfo-1)->address);
             *(uint64_t*)(newBuf
                          + (header->mappingOffset)
                          + (i*sizeof(struct dyld_cache_mapping_info))
                          + (offsetof(struct dyld_cache_mapping_info, address))
                          ) = (mapInfo-1)->address;
             
-            printf("size: %016llx\n", dataOffset-(mapInfo-1)->fileOffset);
+            printf("size       : %016llx\n", dataOffset-(mapInfo-1)->fileOffset);
             *(uint64_t*)(newBuf
                          + (header->mappingOffset)
                          + (i*sizeof(struct dyld_cache_mapping_info))
@@ -345,21 +345,21 @@ int main(int argc, char **argv){
                          ) = dataOffset-(mapInfo-1)->fileOffset;
             tableBaseSize = dataOffset-(mapInfo-1)->fileOffset;
             
-            printf("fileOffset: %016llx\n", (mapInfo-1)->fileOffset);
+            printf("fileOffset : %016llx\n", (mapInfo-1)->fileOffset);
             *(uint64_t*)(newBuf
                          + (header->mappingOffset)
                          + (i*sizeof(struct dyld_cache_mapping_info))
                          + (offsetof(struct dyld_cache_mapping_info, fileOffset))
                          ) = (mapInfo-1)->fileOffset;
             
-            printf("maxProt: %08x\n", (mapInfo-1)->maxProt);
+            printf("maxProt    : %08x\n", (mapInfo-1)->maxProt);
             *(uint32_t*)(newBuf
                          + (header->mappingOffset)
                          + (i*sizeof(struct dyld_cache_mapping_info))
                          + (offsetof(struct dyld_cache_mapping_info, maxProt))
                          ) = (mapInfo-1)->maxProt;
             
-            printf("initProt: %08x\n", (mapInfo-1)->maxProt);
+            printf("initProt   : %08x\n", (mapInfo-1)->maxProt);
             *(uint32_t*)(newBuf
                          + (header->mappingOffset)
                          + (i*sizeof(struct dyld_cache_mapping_info))
@@ -369,7 +369,7 @@ int main(int argc, char **argv){
         
         if(i==4){
             
-            printf("address: %016llx\n", nextBase);
+            printf("address    : %016llx\n", nextBase);
             *(uint64_t*)(newBuf
                          + (header->mappingOffset)
                          + (i*sizeof(struct dyld_cache_mapping_info))
@@ -378,28 +378,28 @@ int main(int argc, char **argv){
             
             nextBase = nextBase + dataSize;
             
-            printf("size: %016llx\n", dataSize);
+            printf("size       : %016llx\n", dataSize);
             *(uint64_t*)(newBuf
                          + (header->mappingOffset)
                          + (i*sizeof(struct dyld_cache_mapping_info))
                          + (offsetof(struct dyld_cache_mapping_info, size))
                          ) = dataSize;
             
-            printf("fileOffset: %016llx\n", newDataOffset);
+            printf("fileOffset : %016llx\n", newDataOffset);
             *(uint64_t*)(newBuf
                          + (header->mappingOffset)
                          + (i*sizeof(struct dyld_cache_mapping_info))
                          + (offsetof(struct dyld_cache_mapping_info, fileOffset))
                          ) = newDataOffset;
             
-            printf("maxProt: %08x\n", (F_R));
+            printf("maxProt    : %08x\n", (F_R));
             *(uint32_t*)(newBuf
                          + (header->mappingOffset)
                          + (i*sizeof(struct dyld_cache_mapping_info))
                          + (offsetof(struct dyld_cache_mapping_info, maxProt))
                          ) = (F_R);
             
-            printf("initProt: %08x\n", (F_R));
+            printf("initProt   : %08x\n", (F_R));
             *(uint32_t*)(newBuf
                          + (header->mappingOffset)
                          + (i*sizeof(struct dyld_cache_mapping_info))
@@ -408,35 +408,35 @@ int main(int argc, char **argv){
         }
         
         if(i==5){
-            printf("address: %016llx\n", nextBase);
+            printf("address    : %016llx\n", nextBase);
             *(uint64_t*)(newBuf
                          + (header->mappingOffset)
                          + (i*sizeof(struct dyld_cache_mapping_info))
                          + (offsetof(struct dyld_cache_mapping_info, address))
                          ) = nextBase;
             
-            printf("size: %016llx\n", (mapInfo-3)->size-dataSize-nextSize);
+            printf("size       : %016llx\n", (mapInfo-3)->size-dataSize-nextSize);
             *(uint64_t*)(newBuf
                          + (header->mappingOffset)
                          + (i*sizeof(struct dyld_cache_mapping_info))
                          + (offsetof(struct dyld_cache_mapping_info, size))
                          ) = (mapInfo-3)->size-dataSize-nextSize;
             
-            printf("fileOffset: %016llx\n", (mapInfo-3)->fileOffset+dataSize+nextSize);
+            printf("fileOffset : %016llx\n", (mapInfo-3)->fileOffset+dataSize+nextSize);
             *(uint64_t*)(newBuf
                          + (header->mappingOffset)
                          + (i*sizeof(struct dyld_cache_mapping_info))
                          + (offsetof(struct dyld_cache_mapping_info, fileOffset))
                          ) = (mapInfo-3)->fileOffset+dataSize+nextSize;
             
-            printf("maxProt: %08x\n", (F_R));
+            printf("maxProt    : %08x\n", (F_R));
             *(uint32_t*)(newBuf
                          + (header->mappingOffset)
                          + (i*sizeof(struct dyld_cache_mapping_info))
                          + (offsetof(struct dyld_cache_mapping_info, maxProt))
                          ) = (F_R);
             
-            printf("initProt: %08x\n", (F_R));
+            printf("initProt   : %08x\n", (F_R));
             *(uint32_t*)(newBuf
                          + (header->mappingOffset)
                          + (i*sizeof(struct dyld_cache_mapping_info))
@@ -449,16 +449,18 @@ int main(int argc, char **argv){
         printf("\n");
     }
     mapInfo = buf + header->mappingOffset;
+    printf("\n");
     
     // 4, move dyld_cache_image_info
-    printf("[RemapHeader] moving dyld_cache_image_info[%016llx] %08x -> %08x\n", headerSize-newImgOffset, header->imagesOffset, newImgOffset);
+    printf("[RemapHeader4] moving dyld_cache_image_info[%016llx] %08x -> %08x\n", headerSize-newImgOffset, header->imagesOffset, newImgOffset);
     memcpy(newBuf+newImgOffset, buf+header->imagesOffset, headerSize-newImgOffset);
+    printf("\n");
     
     // 5, fix dyld_cache_image_info
     uint32_t addSize = newImgOffset-header->imagesOffset;
     printf("dyld_cache_image_info Point: %016lx\n", header->imagesOffset+(pathCount*sizeof(struct dyld_cache_image_info)));
     for (int i=pathCount; i < header->imagesCount; i++) {
-        printf("[RemapHeader] imageInfo->pathFileOffset [%d]: %08x -> %08x\n",
+        printf("[RemapHeader5] imageInfo->pathFileOffset [%d]: %08x -> %08x\n",
                i,
                (imageInfo+i)->pathFileOffset,
                (imageInfo+i)->pathFileOffset+addSize);
@@ -470,11 +472,13 @@ int main(int argc, char **argv){
                      + addSize
                      ) = (imageInfo+i)->pathFileOffset+addSize;
     }
+    printf("\n");
     
     // 6, codesignature
     uint32_t cs_length = __builtin_bswap32(*(uint32_t*)(buf+header->codeSignatureOffset+4));
     printf("cs_length: %08x\n", cs_length);
     *(uint64_t*)(newBuf+offsetof(struct dyld_cache_header, codeSignatureSize)) = cs_length;
+    printf("\n");
     
     // 7, change export table
     uint16_t origTable =  *(uint16_t*)(buf+exportTableOffset);
@@ -483,8 +487,8 @@ int main(int argc, char **argv){
     uint64_t patch_point = (exportTableOffset
                             - ((mapInfo+2)->fileOffset + tableBaseSize)
                             + newDataOffset);
-    printf("original_point: %016llx\n", exportTableOffset);
-    printf("patch_point: %016llx\n", patch_point);
+    printf("original_point : %016llx\n", exportTableOffset);
+    printf("patch_point    : %016llx\n", patch_point);
     
     uint16_t newTable;
     if(MISValidateSignature > MOV_R0_0__BX_LR){
@@ -517,6 +521,7 @@ int main(int argc, char **argv){
     *(uint16_t*)(newBuf+patch_point) = newTable;
     printf("\n");
     /* end */
+    
     
     printf("write: %s\n", outfile);
     FILE *out = fopen(outfile, "w");
