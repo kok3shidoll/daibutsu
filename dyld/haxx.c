@@ -1,3 +1,10 @@
+/* haxx.c - dyld_shared_cache hack
+ * copyright (c) 2021/04/12 dora2ios
+ * license : MIT
+ *
+ * build : gcc haxx.c -DN42_12H321 -o haxx
+ */
+
 #include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
@@ -71,12 +78,7 @@ uint64_t MISValidateSignature;
 uint64_t MOV_R0_0__BX_LR;
 
 // no idea
-void offset_init(void){
-    // n42
-    exportTableOffset = 0x13A3092D;
-    MISValidateSignature = 0x30082cc8;
-    MOV_R0_0__BX_LR = 0x3008153e;
-}
+#include "offset.h"
 
 int main(int argc, char **argv){
     
