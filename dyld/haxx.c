@@ -478,11 +478,12 @@ int main(int argc, char **argv){
     
     // 7, change export table
     uint16_t origTable =  *(uint16_t*)(buf+exportTableOffset);
-    printf("origTable: %04x\n", origTable);
+    //printf("origTable: %04x\n", origTable);
     
     uint64_t patch_point = (exportTableOffset
                             - ((mapInfo+2)->fileOffset + tableBaseSize)
                             + newDataOffset);
+    printf("original_point: %016llx\n", exportTableOffset);
     printf("patch_point: %016llx\n", patch_point);
     
     uint16_t newTable;
@@ -511,7 +512,7 @@ int main(int argc, char **argv){
         
         newTable = origTable + a + i*0x100;
     }
-    printf("newTable: %x\n", newTable);
+    printf("%016llx: %04x -> %04x\n", patch_point, __builtin_bswap16(origTable), __builtin_bswap16(newTable));
     
     *(uint16_t*)(newBuf+patch_point) = newTable;
     printf("\n");
