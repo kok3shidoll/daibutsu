@@ -128,11 +128,12 @@ int main(int argc, char **argv){
     
     
     // search str: "/System/Library/Caches/com.apple.xpc/sdk.dylib"
-    uint64_t pathOffset = (uint64_t)memmem(buf, sz, "/System/Library/Caches/com.apple.xpc/sdk.dylib", strlen("/System/Library/Caches/com.apple.xpc/sdk.dylib"));
-    pathOffset -= (uint64_t)buf;
-    printf("pathOffset : %016llx\n", pathOffset);
-    int pathCount;
+    const char* searchStr = "/System/Library/Caches/com.apple.xpc/sdk.dylib";
     
+    uint64_t pathOffset = (uint64_t)memmem(buf, sz, searchStr, strlen(searchStr));
+    pathOffset -= (uint64_t)buf;
+    
+    int pathCount;
     struct dyld_cache_image_info *imageInfo = buf + header->imagesOffset;
     for (int i=0; i < header->imagesCount; i++) {
         //printf("dyld_cache_image_info [%i]\n", i);
@@ -146,6 +147,9 @@ int main(int argc, char **argv){
         //printf("pad            : %08x\n", imageInfo->pad);
         //printf("\n");
     }
+    
+    printf("path name  : %s\n", searchStr);
+    printf("pathOffset : %016llx\n", pathOffset);
     printf("pathCount  : %d\n", pathCount);
     
     imageInfo = buf + header->imagesOffset;
@@ -163,7 +167,7 @@ int main(int argc, char **argv){
     printf("baseAddr       : %016llx\n", mapInfo->address);
     printf("imageInfo_base : %016llx\n", imageInfo_baseAddr);
     printf("headerSize     : %016llx\n", headerSize);
-    printf("newSize        : %zx\n", newSize);
+    printf("size           : %zx -> %zx\n", sz, newSize);
     printf("\n");
     
     
@@ -174,13 +178,13 @@ int main(int argc, char **argv){
     
     /* copy fakeheader */
     uint64_t newHeaderOffset = ((sz&~0xfff)+pad);
-    printf("[memcpy] header : %016llx -> %016llx\n", (uint64_t)0, newHeaderOffset);
+    printf("[memcpy] header [sz: %016llx] : %016llx -> %016llx\n", headerSize, (uint64_t)0, newHeaderOffset);
     memcpy(newBuf+newHeaderOffset, buf, headerSize);
     
     /* copy fakedata */
     uint64_t dataOffset = (exportTableOffset&~0xfff);
     uint64_t newDataOffset = ((sz&~0xfff)+pad+headerSize);
-    printf("[memcpy] data   : %016llx -> %016llx\n", dataOffset, newDataOffset);
+    printf("[memcpy] data   [sz: %016llx] : %016llx -> %016llx\n", dataSize, dataOffset, newDataOffset);
     memcpy(newBuf+newDataOffset, buf+dataOffset, dataSize);
     printf("\n");
     
@@ -189,13 +193,13 @@ int main(int argc, char **argv){
     
     // 1, mappingCount += 3
     uint32_t newCount = header->mappingCount + 3;
-    printf("[RemapHeader1] newCount: %08x\n", newCount);
+    printf("[RemapHeader1] newCount: %08x -> %08x\n", header->mappingCount, newCount);
     *(uint32_t*)(newBuf+offsetof(struct dyld_cache_header, mappingCount)) = newCount;
     printf("\n");
     
     // 2, imagesOffset = imagesOffset + 3*sizeof(struct dyld_cache_mapping_info)
     uint32_t newImgOffset  = header->imagesOffset + 3*sizeof(struct dyld_cache_mapping_info);
-    printf("[RemapHeader2] newImgOffset: %08x\n", newImgOffset);
+    printf("[RemapHeader2] newImgOffset: %08x -> %08x\n", header->imagesOffset, newImgOffset);
     *(uint32_t*)(newBuf+offsetof(struct dyld_cache_header, imagesOffset)) = newImgOffset;
     printf("\n");
     
@@ -477,6 +481,7 @@ int main(int argc, char **argv){
     // 6, codesignature
     uint32_t cs_length = __builtin_bswap32(*(uint32_t*)(buf+header->codeSignatureOffset+4));
     printf("cs_length: %08x\n", cs_length);
+    printf("codeSignatureSize: %016llx -> %016llx\n", header->codeSignatureSize, (uint64_t)cs_length);
     *(uint64_t*)(newBuf+offsetof(struct dyld_cache_header, codeSignatureSize)) = cs_length;
     printf("\n");
     
