@@ -76,7 +76,7 @@ struct dyld_cache_image_info
 uint64_t exportTableOffset;
 uint64_t MISValidateSignature;
 uint64_t MOV_R0_0__BX_LR;
-
+int isIOS9;
 // no idea
 #include "offset.h"
 
@@ -128,9 +128,15 @@ int main(int argc, char **argv){
     
     
     // search str: "/System/Library/Caches/com.apple.xpc/sdk.dylib"
-    const char* searchStr = "/System/Library/Caches/com.apple.xpc/sdk.dylib";
+    const char* searchStr8 = "/System/Library/Caches/com.apple.xpc/sdk.dylib";
+    const char* searchStr9 = "/System/Library/Frameworks/CoreGraphics.framework/Resources/libCGCorePDF.dylib";
     
-    uint64_t pathOffset = (uint64_t)memmem(buf, sz, searchStr, strlen(searchStr));
+    uint64_t pathOffset;
+    if(isIOS9){
+        pathOffset = (uint64_t)memmem(buf, sz, searchStr9, strlen(searchStr9));
+    } else {
+        pathOffset = (uint64_t)memmem(buf, sz, searchStr8, strlen(searchStr8));
+    }
     pathOffset -= (uint64_t)buf;
     
     int pathCount;
@@ -148,7 +154,11 @@ int main(int argc, char **argv){
         //printf("\n");
     }
     
-    printf("path name  : %s\n", searchStr);
+    if(isIOS9){
+        printf("path name  : %s\n", searchStr9);
+    } else {
+        printf("path name  : %s\n", searchStr8);
+    }
     printf("pathOffset : %016llx\n", pathOffset);
     printf("pathCount  : %d\n", pathCount);
     
