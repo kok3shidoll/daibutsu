@@ -1,5 +1,5 @@
 # daibutsu
-8.4.1 untether (for 32-bit iOS)  
+8.4.1-9.1 untether (for 32-bit iOS)  
 
 ## exploit
 - A dyld exploit that overrides the MISValidateSignature in libmis.dylib (CVE-2015-7079)  
@@ -8,11 +8,10 @@
 
 ### dyld
 Change dyld_shared_cache and overrides _MISValidateSignature in libmis.dylib always return 0 to bypass code signing.  
-(source code is still only for iPhone5,2-12H321)  
 
 #### build&&run
 ```
-gcc haxx.c -o haxx
+gcc haxx.c -D{platform}_{build} -o haxx
 ./haxx dyld_shared_cache_armv7s dyld_shared_cache_armv7s_hack
 ```
 
@@ -20,7 +19,7 @@ gcc haxx.c -o haxx
 For loading substrate.  
 
 ### untether
-old-style jailbreak untether (for iPhone5,2-12H321).  
+old-style jailbreak untether.  
 
 #### build
 ```
@@ -31,7 +30,7 @@ old-style jailbreak untether (for iPhone5,2-12H321).
 ### code signing bypass
 - replace `/System/Library/Caches/com.apple.dyld/dyld_shared_cache_armv7s` on your device with the patched it.  
 
-### automatically apply kernel patch at boot time
+### automatically apply kernel patch at boot time (iOS 8)
 - replace `/usr/libexec/CrashHousekeeping` with a symlink to `/untether32`.  
 - change the launchdaemon startup order so that other daemons start after the kernel patch.  
 
