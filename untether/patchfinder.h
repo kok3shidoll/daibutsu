@@ -46,6 +46,8 @@ uint32_t find_i_can_has_debugger_1_90(uint32_t region, uint8_t* kdata, size_t ks
 uint32_t find_i_can_has_debugger_2(uint32_t region, uint8_t* kdata, size_t ksize);
 uint32_t find_i_can_has_debugger_2_90(uint32_t region, uint8_t* kdata, size_t ksize);
 
+uint32_t find_vm_fault_enter_patch(uint32_t region, uint8_t* kdata, size_t ksize);
+
 // NOP out the conditional branch here.
 uint32_t find_vm_map_enter_patch(uint32_t region, uint8_t* kdata, size_t ksize);
 
@@ -59,6 +61,7 @@ uint32_t find_tfp0_patch(uint32_t region, uint8_t* kdata, size_t ksize);
 // it to be allowed if it is outside of /private/var/mobile, or inside of /private/var/mobile/Library/Preferences but not /private/var/mobile/Library/Preferences/com.apple*
 // To force it to allow, *r0 = 0 and *(r0 + 0x4) = 0x18. If not, just call the original function via the trampoline.
 uint32_t find_sb_patch(uint32_t region, uint8_t* kdata, size_t ksize);
+uint32_t find_sb_evaluate_90(uint32_t region, uint8_t* kdata, size_t ksize);
 
 // Utility function, necessary for the sandbox hook.
 uint32_t find_vn_getpath(uint32_t region, uint8_t* kdata, size_t ksize);
@@ -106,6 +109,6 @@ uint32_t find_io_free(uint32_t region, uint8_t* kdata, size_t ksize);
 uint32_t find_IOLog(uint32_t region, uint8_t* kdata, size_t ksize);
 
 uint32_t find_mount(uint32_t region, uint8_t* kdata, size_t ksize);
-
+uint32_t find_mount_90(uint32_t region, uint8_t* kdata, size_t ksize);
 
 #endif

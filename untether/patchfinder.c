@@ -1041,6 +1041,27 @@ uint32_t find_i_can_has_debugger_2_90(uint32_t region, uint8_t* kdata, size_t ks
 }
 
 
+uint32_t find_vm_fault_enter_patch(uint32_t region, uint8_t* kdata, size_t ksize)
+{
+    const struct find_search_mask search_masks[] =
+    {
+        {0xF800, 0x6800}, // LDR R2, [Ry,#X]
+        {0xF8FF, 0x2800}, // CMP Rx, #0
+        {0xFF00, 0xD100}, // BNE x
+        {0xFBF0, 0xF010}, // TST.W Rx, #0x200000
+        {0x0F00, 0x0F00},
+        {0xFF00, 0xD100}, // BNE x
+        {0xFFF0, 0xF400}, // AND.W Rx, Ry, #0x100000
+        {0xF0FF, 0x1080}
+    };
+    
+    uint16_t* insn = find_with_search_mask(region, kdata, ksize, sizeof(search_masks) / sizeof(*search_masks), search_masks);
+    if(!insn)
+        return 0;
+    
+    return ((uintptr_t)insn) - ((uintptr_t)kdata);
+}
+
 // Change TST.W instruction here with NOP, CMP R0, R0 (0x4280BF00)
 uint32_t find_vm_map_enter_patch(uint32_t region, uint8_t* kdata, size_t ksize)
 {
@@ -1225,6 +1246,44 @@ uint32_t find_sb_patch(uint32_t region, uint8_t* kdata, size_t ksize)
         if(!fn_start)
             return 0;
 
+        uint16_t registers = insn_push_registers(fn_start);
+        // We match PUSH {R0, R1} as well to detect an already patched version.
+        if((registers & (1 << 14)) != 0 || (registers & (1 << 0 | 1 << 1)) == (1 << 0 | 1 << 1))
+            break;
+    }
+
+    return ((uintptr_t)fn_start) - ((uintptr_t)kdata);
+}
+
+uint32_t find_sb_evaluate_90(uint32_t region, uint8_t* kdata, size_t ksize)
+{
+    const struct find_search_mask search_masks[] =
+    {
+        {0xF8FF, 0x2000},
+        {0xFBFF, 0xF04F},
+        {0x8000, 0x0000},
+        {0xFF00, 0xE000},
+        {0x0000, 0x0000},
+        {0xF8FF, 0x2000},
+        {0xFBFF, 0xF04F},
+        {0x8000, 0x0000},
+        {0xFF00, 0x4600},
+        {0xF8FF, 0x2001},
+        {0xF8FF, 0x2800},
+        {0xFF00, 0xD000}
+    };
+    
+    uint16_t* insn = find_with_search_mask(region, kdata, ksize, sizeof(search_masks) / sizeof(*search_masks), search_masks);
+    if(!insn)
+        return 0;
+    
+    uint16_t* fn_start = insn;
+    while(1)
+    {
+        fn_start = find_last_insn_matching(region, kdata, ksize, fn_start, insn_is_push);
+        if(!fn_start)
+            return 0;
+        
         uint16_t registers = insn_push_registers(fn_start);
         // We match PUSH {R0, R1} as well to detect an already patched version.
         if((registers & (1 << 14)) != 0 || (registers & (1 << 0 | 1 << 1)) == (1 << 0 | 1 << 1))
@@ -1454,6 +1513,30 @@ uint32_t find_mount(uint32_t region, uint8_t* kdata, size_t ksize)
 
     insn -= 1;
 
+    return ((uintptr_t)insn) - ((uintptr_t)kdata);
+}
+
+uint32_t find_mount_90(uint32_t region, uint8_t* kdata, size_t ksize)
+{
+    const struct find_search_mask search_masks[] =
+    {
+        {0xFFF0, 0xF420},
+        {0xF0FF, 0x3080},
+        {0xFFF0, 0xF010},
+        {0xFFFF, 0x0F20},
+        {0xFFFF, 0xBF08},
+        {0xFFF0, 0xF440},
+        {0xF0FF, 0x3080},
+        {0xFFF0, 0xF010},
+        {0xFFFF, 0x0F01}
+    };
+    
+    uint16_t* insn = find_with_search_mask(region, kdata, ksize, sizeof(search_masks) / sizeof(*search_masks), search_masks);
+    if(!insn)
+        return 0;
+    
+    insn += 9;
+    
     return ((uintptr_t)insn) - ((uintptr_t)kdata);
 }
 
