@@ -40,9 +40,11 @@ uint32_t find_cs_enforcement_disable_kernel(uint32_t region, uint8_t* kdata, siz
 
 // Change this to non-zero.
 uint32_t find_i_can_has_debugger_1(uint32_t region, uint8_t* kdata, size_t ksize);
+uint32_t find_i_can_has_debugger_1_90(uint32_t region, uint8_t* kdata, size_t ksize);
 
 // Change this to what you want the value to be (non-zero appears to work).
 uint32_t find_i_can_has_debugger_2(uint32_t region, uint8_t* kdata, size_t ksize);
+uint32_t find_i_can_has_debugger_2_90(uint32_t region, uint8_t* kdata, size_t ksize);
 
 // NOP out the conditional branch here.
 uint32_t find_vm_map_enter_patch(uint32_t region, uint8_t* kdata, size_t ksize);
@@ -66,6 +68,7 @@ uint32_t find_memcmp(uint32_t region, uint8_t* kdata, size_t ksize);
 
 // Dereference this, add 0x38 to the resulting pointer, and write whatever boot-args are suitable to affect kern.bootargs.
 uint32_t find_p_bootargs(uint32_t region, uint8_t* kdata, size_t ksize);
+uint32_t find_p_bootargs_generic(uint32_t region, uint8_t* kdata, size_t ksize);
 
 // Function to find the syscall 0 function pointer. Used to modify the syscall table to call our own code.
 uint32_t find_syscall0(uint32_t region, uint8_t* kdata, size_t ksize);
