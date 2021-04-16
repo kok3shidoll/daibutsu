@@ -967,7 +967,7 @@ void unjail9(uint32_t kbase){
     printf("[*] jailbreaking...\n");
     
     printf("[*] running kdumper\n");
-    size_t ksize = 0xFFE000;
+    size_t ksize = 0xF00000;
     void *kdata = malloc(ksize);
     dump_kernel(kbase, kdata, ksize);
     
@@ -1190,12 +1190,10 @@ int main(void){
     
     printf("[*] DONE!\n");
 
-#ifndef UNTETHER
     if(myproc){
         write_primitive(myproc + koffset(offsetof_p_ucred), mycred);
         setuid(501);
     }
-#endif
     
     return 0;
 }
