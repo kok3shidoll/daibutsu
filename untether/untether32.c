@@ -953,6 +953,51 @@ void unjail8(uint32_t kbase){
     
 }
 
+void unjail9(uint32_t kbase){
+    printf("[*] jailbreaking...\n");
+    
+    printf("[*] running kdumper\n");
+    size_t ksize = 0xFFE000;
+    void *kdata = malloc(ksize);
+    dump_kernel(kbase, kdata, ksize);
+    
+    /* patchfinder */
+    printf("[*] running patchfinder\n");
+    uint32_t proc_enforce = kbase + find_proc_enforce(kbase, kdata, ksize);
+    uint32_t cs_enforcement_disable_amfi = kbase + find_cs_enforcement_disable_amfi(kbase, kdata, ksize);
+    uint32_t PE_i_can_has_debugger_1 = kbase + find_i_can_has_debugger_1_90(kbase, kdata, ksize);
+    uint32_t PE_i_can_has_debugger_2 = kbase + find_i_can_has_debugger_2_90(kbase, kdata, ksize);
+    uint32_t p_bootargs = kbase + find_p_bootargs_generic(kbase, kdata, ksize);
+    uint32_t vm_fault_enter = kbase + find_vm_fault_enter_patch(kbase, kdata, ksize);
+    uint32_t vm_map_enter = kbase + find_vm_map_enter_patch(kbase, kdata, ksize);
+    uint32_t vm_map_protect = kbase + find_vm_map_protect_patch(kbase, kdata, ksize);
+    uint32_t mount_patch = kbase + find_mount_90(kbase, kdata, ksize) + 1;
+    uint32_t mapForIO = kbase + find_mapForIO(kbase, kdata, ksize);
+    uint32_t sandbox_call_i_can_has_debugger = kbase + find_sandbox_call_i_can_has_debugger(kbase, kdata, ksize);
+    uint32_t sb_patch = kbase + find_sb_evaluate_90(kbase, kdata, ksize);
+    uint32_t memcmp_addr = find_memcmp(kbase, kdata, ksize);
+    uint32_t vn_getpath = find_vn_getpath(kbase, kdata, ksize);
+    uint32_t csops_addr = kbase + find_csops(kbase, kdata, ksize);
+    
+    printf("[PF] proc_enforce:               %08x\n", proc_enforce);
+    printf("[PF] cs_enforcement_disable:     %08x\n", cs_enforcement_disable_amfi);
+    printf("[PF] PE_i_can_has_debugger_1:    %08x\n", PE_i_can_has_debugger_1);
+    printf("[PF] PE_i_can_has_debugger_2:    %08x\n", PE_i_can_has_debugger_2);
+    printf("[PF] p_bootargs:                 %08x\n", p_bootargs);
+    printf("[PF] vm_fault_enter:             %08x\n", vm_fault_enter);
+    printf("[PF] vm_map_enter:               %08x\n", vm_map_enter);
+    printf("[PF] vm_map_protect:             %08x\n", vm_map_protect);
+    printf("[PF] mount_patch:                %08x\n", mount_patch);
+    printf("[PF] mapForIO:                   %08x\n", mapForIO);
+    printf("[PF] sb_call_i_can_has_debugger: %08x\n", sandbox_call_i_can_has_debugger);
+    printf("[PF] sb_evaluate:                %08x\n", sb_patch);
+    printf("[PF] memcmp:                     %08x\n", memcmp_addr);
+    printf("[PF] vn_getpath:                 %08x\n", vn_getpath);
+    printf("[PF] csops:                      %08x\n", csops_addr);
+    
+    //printf("[*] running kernelpatcher\n");
+    
+}
 
 void load_jb(){
     
