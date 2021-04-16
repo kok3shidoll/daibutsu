@@ -1919,3 +1919,54 @@ uint32_t find_IOLog(uint32_t region, uint8_t* kdata, size_t ksize)
     return target + 1;
 }
 
+// get-task-allow
+uint32_t find_amfi_file_check_mmap(uint32_t region, uint8_t* kdata, size_t ksize)
+{
+    uint8_t* hook_execve = memmem(kdata, ksize, "AMFI: hook..execve() killing pid %u: %s\n", sizeof("AMFI: hook..execve() killing pid %u: %s\n"));
+    if(!hook_execve)
+        return 0;
+    
+    // Find a reference to the "AMFI: hook..execve() killing pid ..." string.
+    uint16_t* ref = find_literal_ref(region, kdata, ksize, (uint16_t*) kdata, (uintptr_t)hook_execve - (uintptr_t)kdata);
+    if(!ref)
+        return 0;
+
+    uint32_t amfi_off = (uintptr_t)ref - (uintptr_t)kdata;
+    
+    uint8_t* rootless = memmem(kdata, ksize, "com.apple.rootless.install", sizeof("com.apple.rootless.install"));
+    if(!rootless)
+        return 0;
+    
+    // Find a reference to the "com.apple.rootless.install" string.
+    ref = find_literal_ref(region, kdata, ksize, (uint16_t*) kdata, (uintptr_t)rootless - (uintptr_t)kdata);
+    if(!ref)
+        return 0;
+    
+    uint32_t rootless_off = (uintptr_t)ref - (uintptr_t)kdata;
+    if(amfi_off > rootless_off ||
+       (amfi_off + 0x800) < rootless_off)
+    {
+        rootless = memmem(kdata+rootless_off, ksize-rootless_off, "com.apple.rootless.install", sizeof("com.apple.rootless.install"));
+        if(!rootless)
+            return 0;
+        
+        // Re-Find a reference to the "com.apple.rootless.install" string.
+        ref = find_literal_ref(region, kdata, ksize, (uint16_t*) kdata, (uintptr_t)rootless - (uintptr_t)kdata);
+        if(!ref)
+            return 0;
+        rootless_off = (uintptr_t)ref - (uintptr_t)kdata;
+    }
+    
+    int i=0;
+    while(1){
+        if(i>16)
+            return 0;
+        if((ref[i] & 0xfff0) == 0xbf10) // it ne
+            break;
+        i++;
+    }
+    
+    ref += (i-1);
+    
+    return (uintptr_t)ref - (uintptr_t)kdata;
+}

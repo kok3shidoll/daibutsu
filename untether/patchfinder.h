@@ -111,4 +111,6 @@ uint32_t find_IOLog(uint32_t region, uint8_t* kdata, size_t ksize);
 uint32_t find_mount(uint32_t region, uint8_t* kdata, size_t ksize);
 uint32_t find_mount_90(uint32_t region, uint8_t* kdata, size_t ksize);
 
+uint32_t find_amfi_file_check_mmap(uint32_t region, uint8_t* kdata, size_t ksize);
+
 #endif

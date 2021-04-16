@@ -978,6 +978,7 @@ void unjail9(uint32_t kbase){
     uint32_t memcmp_addr = find_memcmp(kbase, kdata, ksize);
     uint32_t vn_getpath = find_vn_getpath(kbase, kdata, ksize);
     uint32_t csops_addr = kbase + find_csops(kbase, kdata, ksize);
+    uint32_t amfi_file_check_mmap = kbase + find_amfi_file_check_mmap(kbase, kdata, ksize);
     
     printf("[PF] proc_enforce:               %08x\n", proc_enforce);
     printf("[PF] cs_enforcement_disable:     %08x\n", cs_enforcement_disable_amfi);
@@ -994,6 +995,7 @@ void unjail9(uint32_t kbase){
     printf("[PF] memcmp:                     %08x\n", memcmp_addr);
     printf("[PF] vn_getpath:                 %08x\n", vn_getpath);
     printf("[PF] csops:                      %08x\n", csops_addr);
+    printf("[PF] amfi_file_check_mmap:       %08x\n", amfi_file_check_mmap);
     
     //printf("[*] running kernelpatcher\n");
     
