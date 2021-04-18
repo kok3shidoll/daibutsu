@@ -1,0 +1,25 @@
+/* 1, neagent */
+Backup neagent.
+  [cmd] cp -a /usr/libexec/neagent /usr/libexec/neagent_o
+Change the path of the neagent executed by execvp().
+  [*] before: execvp("/Developer/usr/libexec/neagent", ...);
+  [*] after : execvp("/Developer/usr/libexec/n3agent", ...);
+
+/* 2, moving launchdaemons */
+  [cmd] mv /System/Library/LaunchDaemons/* /Library/LaunchDaemons
+  [cmd] mv /System/Library/NanoLaunchDaemons /Library
+
+  [cmd] mv /Library/LaunchDaemons/bootps.plist /System/Library/LaunchDaemons
+  [cmd] mv /Library/LaunchDaemons/com.apple.CrashHousekeeping.plist /System/Library/LaunchDaemons
+  [cmd] mv /Library/LaunchDaemons/com.apple.MobileFileIntegrity.plist /System/Library/LaunchDaemons
+  [cmd] mv /Library/LaunchDaemons/com.apple.jetsamproperties.*.plist /System/Library/LaunchDaemons
+  [cmd] mv /Library/LaunchDaemons/com.apple.mobile.softwareupdated.plist /System/Library/LaunchDaemons/com.apple.mobile.softwareupdated.plist_
+  [cmd] mv /Library/LaunchDaemons/com.apple.softwareupdateservicesd.plist /System/Library/LaunchDaemons/com.apple.softwareupdateservicesd.plist_
+
+/* 3, symlink hack */
+Direct symlink to CrashHousekeeping doesn't work like iOS 8. 
+Create a daemon to run untether via neagent.
+  [cmd] mv -v /usr/libexec/CrashHousekeeping /usr/libexec/CrashHousekeeping_o
+  [cmd] mkdir -p /Developer/usr/libexec/
+  [cmd] ln -s /untether32 /Developer/usr/libexec/neagent
+  [cmd] cp -a /usr/libexec/neagent_o /usr/libexec/CrashHousekeeping

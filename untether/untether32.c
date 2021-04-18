@@ -42,6 +42,8 @@
 
 #define CHUNK_SIZE 0x800
 
+#define KERNEL_BASE_ADDRESS (0x80001000)
+
 char *lockfile;
 int fd;
 int fildes[2];
@@ -194,6 +196,23 @@ enum koffsets {
     offsetof_allproc,                  // allproc
     offsetof_p_pid,                  // proc_t::p_pid
     offsetof_p_ucred,                // proc_t::p_ucred
+    /* patchfinder90 */
+    PF9_proc_enforce,
+    PF9_cs_enforcement_disable_amfi,
+    PF9_PE_i_can_has_debugger_1,
+    PF9_PE_i_can_has_debugger_2,
+    PF9_p_bootargs,
+    PF9_vm_fault_enter,
+    PF9_vm_map_enter,
+    PF9_vm_map_protect,
+    PF9_mount_patch,
+    PF9_mapForIO,
+    PF9_sandbox_call_i_can_has_debugger,
+    PF9_sb_patch,
+    PF9_memcmp_addr,
+    PF9_vn_getpath,
+    PF9_csops_addr,
+    PF9_amfi_file_check_mmap,
 };
 
 uint32_t koffsets_S5L8950X_12H321[] = {
@@ -216,6 +235,23 @@ uint32_t koffsets_S5L8950X_12H321[] = {
     0x3f9970,   // allproc
     0x8,        // proc_t::p_pid
     0x8c,       // proc_t::p_ucred
+    
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
 };
 
 uint32_t koffsets_S5L8950X_13A452[] = {
@@ -238,6 +274,23 @@ uint32_t koffsets_S5L8950X_13A452[] = {
     0x45d9b0,   // allproc
     0x8,        // proc_t::p_pid
     0x8c,       // proc_t::p_ucred
+    
+    0x8040b0d0, // proc_enforce
+    0x80773be9, // cs_enforcement_disable_amfi
+    0x803b0014, // PE_i_can_has_debugger_1
+    0x8045d8f0, // PE_i_can_has_debugger_2
+    0x80461de0, // p_bootargs
+    0x80078fa8, // vm_fault_enter
+    0x80080478, // vm_map_enter
+    0x80081e22, // vm_map_protect
+    0x800f5b65, // mount_patch
+    0x80bd5a22, // mapForIO
+    0x80e55e90, // sandbox_call_i_can_has_debugger
+    0x80e52948, // sb_patch
+    0x800c5125, // memcmp_addr
+    0x800f0211, // vn_getpath
+    0x802af740, // csops_addr
+    0x8075765a, // amfi_file_check_mmap
 };
 
 uint32_t koffset(enum koffsets offset){
@@ -963,15 +1016,16 @@ void unjail8(uint32_t kbase){
     
 }
 
-void unjail9(uint32_t kbase){
+void unjail9(uint32_t kbase, uint32_t slide){
     printf("[*] jailbreaking...\n");
     
+    /* Probably not working *
     printf("[*] running kdumper\n");
     size_t ksize = 0xF00000;
     void *kdata = malloc(ksize);
     dump_kernel(kbase, kdata, ksize);
-    
-    /* patchfinder */
+     
+    * patchfinder *
     printf("[*] running patchfinder\n");
     uint32_t proc_enforce = kbase + find_proc_enforce(kbase, kdata, ksize);
     uint32_t cs_enforcement_disable_amfi = kbase + find_cs_enforcement_disable_amfi(kbase, kdata, ksize);
@@ -989,6 +1043,24 @@ void unjail9(uint32_t kbase){
     uint32_t vn_getpath = find_vn_getpath(kbase, kdata, ksize);
     uint32_t csops_addr = kbase + find_csops(kbase, kdata, ksize);
     uint32_t amfi_file_check_mmap = kbase + find_amfi_file_check_mmap(kbase, kdata, ksize);
+    */
+    
+    uint32_t proc_enforce                       = koffset(PF9_proc_enforce)                    + slide;
+    uint32_t cs_enforcement_disable_amfi        = koffset(PF9_cs_enforcement_disable_amfi)     + slide;
+    uint32_t PE_i_can_has_debugger_1            = koffset(PF9_PE_i_can_has_debugger_1)         + slide;
+    uint32_t PE_i_can_has_debugger_2            = koffset(PF9_PE_i_can_has_debugger_2)         + slide;
+    uint32_t p_bootargs                         = koffset(PF9_p_bootargs)                      + slide;
+    uint32_t vm_fault_enter                     = koffset(PF9_vm_fault_enter)                  + slide;
+    uint32_t vm_map_enter                       = koffset(PF9_vm_map_enter)                    + slide;
+    uint32_t vm_map_protect                     = koffset(PF9_vm_map_protect)                  + slide;
+    uint32_t mount_patch                        = koffset(PF9_mount_patch)                     + slide;
+    uint32_t mapForIO                           = koffset(PF9_mapForIO)                        + slide;
+    uint32_t sandbox_call_i_can_has_debugger    = koffset(PF9_sandbox_call_i_can_has_debugger) + slide;
+    uint32_t csops_addr                         = koffset(PF9_csops_addr)                      + slide;
+    uint32_t amfi_file_check_mmap               = koffset(PF9_amfi_file_check_mmap)            + slide;
+    uint32_t sb_patch                           = koffset(PF9_sb_patch)                        + slide;
+    uint32_t memcmp_addr                        = koffset(PF9_memcmp_addr)       - KERNEL_BASE_ADDRESS;
+    uint32_t vn_getpath                         = koffset(PF9_vn_getpath)        - KERNEL_BASE_ADDRESS;
     
     printf("[PF] proc_enforce:               %08x\n", proc_enforce);
     printf("[PF] cs_enforcement_disable:     %08x\n", cs_enforcement_disable_amfi);
@@ -1120,7 +1192,7 @@ void unjail9(uint32_t kbase){
     
 }
 
-void load_jb(){
+void load_jb(int isIOS9){
     
     // remount rootfs
     printf("[*] remounting rootfs\n");
@@ -1143,8 +1215,14 @@ void load_jb(){
 #ifdef UNTETHER
     posix_spawn(&pd, jl, NULL, NULL, (char **)&(const char*[]){ jl, "load", "/Library/NanoLaunchDaemons", NULL }, NULL);
     
+    usleep(10000);
+    
     jl = "/usr/libexec/CrashHousekeeping_o";
     posix_spawn(&pd, jl, NULL, NULL, (char **)&(const char*[]){ jl, NULL }, NULL);
+    if(isIOS9){
+        waitpid(pd, NULL, 0);
+    }
+    
 #endif
     
 #ifdef RELOADER
@@ -1178,9 +1256,9 @@ int main(void){
         if(!isIOS9){
             unjail8(kernel_base);
         } else {
-            unjail9(kernel_base);
+            unjail9(kernel_base, (uint32_t)(kernel_base - KERNEL_BASE_ADDRESS));
         }
-        load_jb();
+        load_jb(isIOS9);
         
     } else {
         printf("[-] Failed to get tfp0\n");
