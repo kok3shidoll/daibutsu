@@ -10,6 +10,11 @@ void offset_init(void){
     MISValidateSignature = 0x2fe47ca0;
     MOV_R0_0__BX_LR = 0x2fe46516;
     isIOS9 = 0;
+#elif defined(N78_12H321)
+    exportTableOffset = 0x136AC9BD;
+    MISValidateSignature = 0x2fd11ca0;
+    MOV_R0_0__BX_LR = 0x2fd10516;
+    isIOS9 = 0;
 #elif defined(N42_13A452)
     exportTableOffset = 0x177207AD;
     MISValidateSignature = 0x33533ec8;
