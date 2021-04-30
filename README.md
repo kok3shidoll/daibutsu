@@ -12,8 +12,12 @@ Change dyld_shared_cache and overrides _MISValidateSignature in libmis.dylib alw
 #### build&&run
 ```
 gcc haxx.c -D{platform}_{build} -o haxx
-./haxx dyld_shared_cache_armv7s dyld_shared_cache_armv7s_hack
+./haxx dyld_shared_cache_[armv7s] dyld_shared_cache_[armv7s]_hack
 ```
+
+- Arch  
+  - A5&A5rA: `armv7`  
+  - A6: `armv7s`  
 
 ### helper
 For loading substrate.  
@@ -28,7 +32,7 @@ old-style jailbreak untether.
 
 ## How To Install Untether
 ### code signing bypass
-- replace `/System/Library/Caches/com.apple.dyld/dyld_shared_cache_armv7s` on your device with the patched it.  
+- replace `/System/Library/Caches/com.apple.dyld/dyld_shared_cache_[armv7s]` on your device with the patched it.  
 
 ### automatically apply kernel patch at boot time (iOS 8)
 - replace `/usr/libexec/CrashHousekeeping` with a symlink to `/untether32`.  
@@ -39,3 +43,4 @@ old-style jailbreak untether.
 
 [init] 2021/04/07  by dora2ios  
 [update] 2021/04/10  by dora2ios  
+[update] 2021/05/01  by dora2ios  
