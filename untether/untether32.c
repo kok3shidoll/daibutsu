@@ -230,7 +230,7 @@ uint32_t koffsets_S5L8950X_12H321[] = {
     0xa7758,    // flush_dcache
     0xb3600,    // invalidate_tlb
     0x2c05c8,   // task_for_pid
-    0x16,       // pid_check_addr offset
+    0x16+2,     // pid_check_addr offset
     0x3e,       // posix_check_ret_addr offset
     0x222,      // mac_proc_check_ret_addr offset
     0x3f9970,   // allproc
