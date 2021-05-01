@@ -216,7 +216,7 @@ enum koffsets {
     PF9_amfi_file_check_mmap,
 };
 
-uint32_t koffsets_S5L8950X_12H321[] = {
+uint32_t koffsets_S5L895xX_12H321[] = {
     0x2d9864,   // OSSerializer::serialize
     0x2db984,   // OSSymbol::getMetaClass
     0x1d300,    // calend_gettime
@@ -255,7 +255,7 @@ uint32_t koffsets_S5L8950X_12H321[] = {
     0,
 };
 
-uint32_t koffsets_S5L8942X_12H321[] = {
+uint32_t koffsets_S5L894xX_12H321[] = {
     0x2D4A1C,   // OSSerializer::serialize
     0x2D6AFC,   // OSSymbol::getMetaClass
     0x1D0A0,    // calend_gettime
@@ -348,13 +348,29 @@ void offsets_init(void){
     
     if (strcmp(u.version, "Darwin Kernel Version 14.0.0: Wed Aug  5 19:24:44 PDT 2015; root:xnu-2784.40.6~18/RELEASE_ARM_S5L8950X") == 0) {
         printf("S5L8950X: 12H321\n");
-        offsets = koffsets_S5L8950X_12H321;
+        offsets = koffsets_S5L895xX_12H321;
         isA6 = 1;
+    }
+    
+    if (strcmp(u.version, "Darwin Kernel Version 14.0.0: Wed Aug  5 19:24:36 PDT 2015; root:xnu-2784.40.6~18/RELEASE_ARM_S5L8955X") == 0) {
+        printf("S5L8955X: 12H321\n");
+        offsets = koffsets_S5L895xX_12H321;
+        isA6 = 1;
+    }
+    
+    if (strcmp(u.version, "Darwin Kernel Version 14.0.0: Wed Aug  5 19:24:24 PDT 2015; root:xnu-2784.40.6~18/RELEASE_ARM_S5L8940X") == 0) {
+        printf("S5L8940X: 12H321\n");
+        offsets = koffsets_S5L894xX_12H321;
     }
     
     if (strcmp(u.version, "Darwin Kernel Version 14.0.0: Wed Aug  5 19:26:26 PDT 2015; root:xnu-2784.40.6~18/RELEASE_ARM_S5L8942X") == 0) {
         printf("S5L8942X: 12H321\n");
-        offsets = koffsets_S5L8942X_12H321;
+        offsets = koffsets_S5L894xX_12H321;
+    }
+    
+    if (strcmp(u.version, "Darwin Kernel Version 14.0.0: Wed Aug  5 19:24:41 PDT 2015; root:xnu-2784.40.6~18/RELEASE_ARM_S5L8945X") == 0) {
+        printf("S5L8945X: 12H321\n");
+        offsets = koffsets_S5L894xX_12H321;
     }
     
     if (strcmp(u.version, "Darwin Kernel Version 15.0.0: Thu Aug 20 13:11:13 PDT 2015; root:xnu-3248.1.3~1/RELEASE_ARM_S5L8950X") == 0) {
