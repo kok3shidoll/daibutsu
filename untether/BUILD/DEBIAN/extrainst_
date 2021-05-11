@@ -1,0 +1,15 @@
+#!/bin/bash
+
+if [[ $1 == install || $1 == upgrade ]]; then
+
+mkdir -p /etc/rc.d
+ln -sf /usr/libexec/substrate /etc/rc.d/substrate
+
+declare -a cydia
+cydia=($CYDIA)
+
+if [[ ${CYDIA+@} ]]; then
+   eval "echo 'finish:reboot' >&${cydia[0]}"
+fi
+
+fi

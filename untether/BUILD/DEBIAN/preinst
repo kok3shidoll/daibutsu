@@ -1,0 +1,10 @@
+#!/bin/bash
+
+if [[ $1 == install ]]; then
+
+if [[ ! -f "/.installed_daibutsu" ]]; then
+    echo "not daibutsu jailbreak"
+    exit 1
+fi
+
+fi
