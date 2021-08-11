@@ -47,6 +47,7 @@ uint32_t find_i_can_has_debugger_2(uint32_t region, uint8_t* kdata, size_t ksize
 uint32_t find_i_can_has_debugger_2_90(uint32_t region, uint8_t* kdata, size_t ksize);
 
 uint32_t find_vm_fault_enter_patch(uint32_t region, uint8_t* kdata, size_t ksize);
+uint32_t find_vm_fault_enter_patch_84(uint32_t region, uint8_t* kdata, size_t ksize);
 
 // NOP out the conditional branch here.
 uint32_t find_vm_map_enter_patch(uint32_t region, uint8_t* kdata, size_t ksize);

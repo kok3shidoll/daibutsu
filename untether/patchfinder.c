@@ -1040,6 +1040,53 @@ uint32_t find_i_can_has_debugger_2_90(uint32_t region, uint8_t* kdata, size_t ks
     return value + ((uintptr_t)insn) - ((uintptr_t)kdata);
 }
 
+uint32_t find_vm_fault_enter_patch_84(uint32_t region, uint8_t* kdata, size_t ksize)
+{
+    const struct find_search_mask search_masks_a5[] =
+    {
+        // A5(x&rA)
+        {0xF0F0, 0xF000}, // AND.W Rx, Ry, #0x40
+        {0xF0FF, 0x0040}, //
+        {0xFFF0, 0xF8D0}, // ldr.w x, [Ry, #z]
+        {0x0000, 0x0000},
+        {0xFFF0, 0xF8D0}, // ldr.w x, [Ry, #z]
+        {0x0000, 0x0000},
+        {0xFBF0, 0xF010}, // TST.W Rx, #0x200000
+        {0x0F00, 0x0F00},
+        {0xFF00, 0xD100}, // BNE x              <- NOP
+        {0xF800, 0x6800}, // LDR R2, [Ry,#X]    <- movs r2, #1
+        
+    };
+    
+    const struct find_search_mask search_masks_a6[] =
+    {
+        // A6
+        {0xFFF0, 0xF8D0}, // ldr.w x, [Ry, #z]
+        {0x0000, 0x0000},
+        {0xF0F0, 0xF000}, // AND.W Rx, Ry, #0x40
+        {0xF0FF, 0x0040}, //
+        {0xFBF0, 0xF010}, // TST.W Rx, #0x200000
+        {0x0F00, 0x0F00},
+        {0xF800, 0x6800}, // LDR R3, [Ry,#X]
+        {0xFF00, 0xD100}, // BNE x              <- NOP
+        {0xF800, 0x6800}, // LDR R2, [Ry,#X]    <- movs r2, #1
+        
+    };
+    
+    uint16_t* insn_a6 = find_with_search_mask(region, kdata, ksize, sizeof(search_masks_a6) / sizeof(*search_masks_a6), search_masks_a6);
+    
+    if(!insn_a6){
+        uint16_t* insn_a5 = find_with_search_mask(region, kdata, ksize, sizeof(search_masks_a5) / sizeof(*search_masks_a5), search_masks_a5);
+        if(!insn_a5){
+            return 0;
+        }
+        return ((uintptr_t)insn_a5) - ((uintptr_t)kdata)+16;
+    } else {
+        return ((uintptr_t)insn_a6) - ((uintptr_t)kdata)+14;
+    }
+    
+    return 0;
+}
 
 uint32_t find_vm_fault_enter_patch(uint32_t region, uint8_t* kdata, size_t ksize)
 {
