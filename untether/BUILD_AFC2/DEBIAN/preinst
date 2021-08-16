@@ -1,0 +1,15 @@
+#!/bin/bash
+
+if [ -f "/.installed_daibutsu" ]; then
+ if [ -f "/daibutsu" ]; then
+  echo "daibutsu jailbreak"
+ else
+  echo "not daibutsu jailbreak"
+  exit 1
+ fi
+else
+	echo "not daibutsu jailbreak"
+	exit 1
+fi
+
+echo

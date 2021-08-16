@@ -1,0 +1,11 @@
+Package: jp.daibutsu.afc2d
+Name: daibutsu AFC2
+Version: 1.0
+Architecture: iphoneos-arm
+Description: TaiG style AFC2 package.
+Maintainer: sakuRdev/dora2ios
+Author: sakuRdev/dora2ios
+Section: System
+Pre-Depends: jp.daibutsu.untether841 (>= 1.2)
+Depends: firmware (= 8.4.1)
+Conflicts: apt.3k.taigafc2, com.saurik.afc2d

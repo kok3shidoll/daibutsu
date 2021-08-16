@@ -1,0 +1,14 @@
+#!/bin/sh
+
+echo Uninstall
+
+declare -a cydia
+cydia=($CYDIA)
+firmware=$(sw_vers -productVersion)
+
+if [[ ${CYDIA+@} ]]; then
+   eval "echo 'finish:reboot' >&${cydia[0]}"
+fi
+
+echo
+

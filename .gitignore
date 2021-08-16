@@ -5,4 +5,8 @@ untether/untether32
 dyld/tmp
 dyld/haxx
 untether/BUILD/daibutsu
+BUILD_AFC2/usr/share/daibutsuAFC2/afcd2
 untether/package/jp.daibutsu.untether841_*_iphoneos-arm.deb
+untether/package/jp.daibutsu.afc2d_*_iphoneos-arm.deb
+untether/afcd2
+untether/BUILD_AFC2/usr/share/daibutsuAFC2/afcd2
