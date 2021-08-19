@@ -1282,22 +1282,24 @@ void load_jb(int isIOS9){
     pid_t pd = 0;
     
     // afc2
-    char *afc2d_path = "/usr/share/daibutsuAFC2/afc2d.dmg";
-    char *afc2d_exec_path = "/usr/share/daibutsuAFC2/afcd2";
-    FILE *fd = fopen(afc2d_path, "r");
-    if (fd) {
-        fd = fopen(afc2d_exec_path, "r");
-        if (fd) {
-            posix_spawn(&pd, afc2d_exec_path, NULL, NULL, (char **)&(const char*[]){ afc2d_exec_path, NULL }, NULL);
-            waitpid(pd, NULL, 0);
-        }
-    }
+    //char *afc2d_path = "/usr/share/daibutsuAFC2/afc2d.dmg";
+    //char *afc2d_exec_path = "/usr/share/daibutsuAFC2/afcd2";
+    //FILE *fd = fopen(afc2d_path, "r");
+    //if (fd) {
+    //    fd = fopen(afc2d_exec_path, "r");
+    //    if (fd) {
+    //        posix_spawn(&pd, afc2d_exec_path, NULL, NULL, (char **)&(const char*[]){ afc2d_exec_path, NULL }, NULL);
+    //        waitpid(pd, NULL, 0);
+    //    }
+    //}
     
     printf("[*] loading JB\n");
     // substrate: run "dirhelper"
     jl = "/bin/bash";
     posix_spawn(&pd, jl, NULL, NULL, (char **)&(const char*[]){ jl, "/usr/libexec/dirhelper", NULL }, NULL);
     waitpid(pd, NULL, 0);
+    
+    usleep(100000);
     
     jl = "/bin/launchctl";
     posix_spawn(&pd, jl, NULL, NULL, (char **)&(const char*[]){ jl, "load", "/Library/LaunchDaemons", NULL }, NULL);
