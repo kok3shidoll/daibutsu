@@ -1281,6 +1281,25 @@ void load_jb(int isIOS9){
     const char *jl;
     pid_t pd = 0;
     
+    int f = open("/.installed_daibutsu", O_RDONLY);
+    if (f == -1) {
+        chmod("/private", 0777);
+        chmod("/private/var", 0777);
+        chmod("/private/var/mobile", 0777);
+        chmod("/private/var/mobile/Library", 0777);
+        chmod("/private/var/mobile/Library/Preferences", 0777);
+        
+        posix_spawn(&pd, "/var/lib/dpkg/info/com.saurik.patcyh.extrainst_", 0, 0, (char**)&(const char*[]){"/var/lib/dpkg/info/com.saurik.patcyh.extrainst_", "install", NULL}, NULL);
+        printf("[*] pid = %x\n", pd);
+        waitpid(pd, 0, 0);
+        sleep(3);
+        
+        open("/.installed_daibutsu", O_RDWR|O_CREAT);
+        chmod("/.installed_daibutsu", 0644);
+        chown("/.installed_daibutsu", 0, 0);
+    }
+    
+    
     // afc2
     //char *afc2d_path = "/usr/share/daibutsuAFC2/afc2d.dmg";
     //char *afc2d_exec_path = "/usr/share/daibutsuAFC2/afcd2";

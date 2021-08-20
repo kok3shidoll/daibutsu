@@ -1,0 +1,13 @@
+#!/bin/bash
+
+# fix v1.2r bugs
+chown 0:0 /etc/fstab
+chown 0:0 /usr/libexec/dirhelper
+
+chown 0:0 /.installed_daibutsu
+chmod 0644 /.installed_daibutsu
+
+if [[ -f "/.cydia_no_stash" ]]; then
+chown 0:0 /.cydia_no_stash
+chmod 0644 /.cydia_no_stash
+fi

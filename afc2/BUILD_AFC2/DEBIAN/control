@@ -3,6 +3,7 @@ Name: daibutsu AFC2
 Version: 1.1
 Architecture: iphoneos-arm
 Description: TaiG style AFC2 package.
+Depiction: https://dora2ios.github.io/info/jp.daibutsu.afc2d/
 Maintainer: sakuRdev/dora2ios
 Author: sakuRdev/dora2ios
 Section: System
