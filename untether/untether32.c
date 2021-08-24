@@ -395,15 +395,6 @@ uint32_t leak_kernel_base(void){
     } while (IORegistryEntryGetProperty(object, "HIDKeyboardModifierMappingSrc", data, &size));
     
     if (size > 8) {
-        int i;
-        for (i=0; i<size; i++) {
-            if (i % 4 == 0) {
-                //printf("\n");
-            }
-            //printf("%02x ", (unsigned char)data[i]);
-        }
-        //printf("\n");
-        
         return (*(uint32_t *)(data+36) & 0xFFF00000) + 0x1000;
     }
     return 0;
@@ -480,14 +471,7 @@ void *insert_payload(void *ptr) {
     } while (IORegistryEntryGetProperty(object, "ararararararararararararararararararararararararararararararararararararararararararararararararararararararararararararararara", buffer, &size));
     
     if (size > 8) {
-        int i;
-        for (i=0; i<size; i++) {
-            if (i % 4 == 0) {
-                //printf("\n");
-            }
-            //printf("%02x ", (unsigned char)buffer[i]);
-        }
-        //printf("\n");
+        
         if(!isA6&&!isIOS9){
             payload_ptr = *(uint32_t *)(buffer+12); // ?
         } else {
@@ -1015,19 +999,6 @@ void load_jb(void){
         chmod("/.installed_daibutsu", 0644);
         chown("/.installed_daibutsu", 0, 0);
     }
-    
-    
-    // afc2
-    //char *afc2d_path = "/usr/share/daibutsuAFC2/afc2d.dmg";
-    //char *afc2d_exec_path = "/usr/share/daibutsuAFC2/afcd2";
-    //FILE *fd = fopen(afc2d_path, "r");
-    //if (fd) {
-    //    fd = fopen(afc2d_exec_path, "r");
-    //    if (fd) {
-    //        posix_spawn(&pd, afc2d_exec_path, NULL, NULL, (char **)&(const char*[]){ afc2d_exec_path, NULL }, NULL);
-    //        waitpid(pd, NULL, 0);
-    //    }
-    //}
     
     printf("[*] loading JB\n");
     // substrate: run "dirhelper"
