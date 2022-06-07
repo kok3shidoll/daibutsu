@@ -11,7 +11,41 @@
 #include <stdio.h>
 #include <assert.h>
 #include <stddef.h>
+#include <mach-o/loader.h>
 
+static int insn_is_movz_x0_0(uint32_t *i)
+{
+    if (*i == 0xd2800000)
+    {
+        return 1;
+    }
+    return 0;
+}
+
+static int insn_is_movz_x2_0(uint32_t *i)
+{
+    if (*i == 0xd2800002)
+    {
+        return 1;
+    }
+    return 0;
+}
+
+static int insn_is_ret(uint32_t *i)
+{
+    if (*i == 0xd65f03c0)
+        return 1;
+
+    return 0;
+}
+
+static int insn_is_b_64(uint32_t *i)
+{
+    if ((*i & 0xff000000) == 0x17000000)
+        return 1;
+    else
+        return 0;
+}
 
 int open_file(char *file, size_t *sz, void **buf){
     FILE *fd = fopen(file, "r");
@@ -73,9 +107,9 @@ struct dyld_cache_image_info
 };
 
 // n71m 9.0.2
-uint64_t exportTableOffset      = 0x1D6B25A2;
-uint64_t MISValidateSignature   = 0x1975d0ec0;
-uint64_t MOV_R0_0__BX_LR        = 0x1975cec18;
+uint64_t exportTableOffset;
+uint64_t MISValidateSignature;
+uint64_t MOV_R0_0__BX_LR;
 int isIOS9=1;
 // no idea
 //#include "offset.h"
@@ -126,8 +160,7 @@ int main(int argc, char **argv){
     }
     mapInfo = buf + header->mappingOffset;
     
-    
-    // search str: "/System/Library/Caches/com.apple.xpc/sdk.dylib"
+    const char *libmis = "/usr/lib/libmis.dylib";
     const char* searchStr8 = "/System/Library/Caches/com.apple.xpc/sdk.dylib";
     const char* searchStr9 = "/System/Library/Frameworks/CoreGraphics.framework/Resources/libCGCorePDF.dylib";
     
@@ -138,32 +171,111 @@ int main(int argc, char **argv){
         pathOffset = (uint64_t)memmem(buf, sz, searchStr8, strlen(searchStr8));
     }
     pathOffset -= (uint64_t)buf;
-    
+    uint64_t libmisoffset;
+
     int pathCount;
     struct dyld_cache_image_info *imageInfo = buf + header->imagesOffset;
-    for (int i=0; i < header->imagesCount; i++) {
-        //printf("dyld_cache_image_info [%i]\n", i);
-        //printf("address        : %016llx\n", imageInfo->address);
-        //printf("modTime        : %016llx\n", imageInfo->modTime);
-        //printf("inode          : %016llx\n", imageInfo->inode);
-        //printf("pathFileOffset : %08x\n", imageInfo->pathFileOffset);
+    for (int i = 0; i < header->imagesCount; i++)
+    {
+        if (strcmp(libmis, (char *)buf + imageInfo->pathFileOffset) == 0)
+        {
+            // printf("dyld_cache_image_info [%i]\n", i);
+            // printf("address        : %016llx\n", imageInfo->address);
+            // printf("modTime        : %016llx\n", imageInfo->modTime);
+            // printf("inode          : %016llx\n", imageInfo->inode);
+            // printf("pathFileOffset : %08x\n", imageInfo->pathFileOffset);
+            libmisoffset = imageInfo->pathFileOffset;
+            // printf("path           : %s\n", (char *)buf + imageInfo->pathFileOffset);
+            // printf("pad            : %08x\n", imageInfo->pad);
+            // printf("\n");
+        }
         if(imageInfo->pathFileOffset == pathOffset) pathCount = i;
-        //printf("path           : %s\n", (char *)buf+imageInfo->pathFileOffset);
         imageInfo++;
-        //printf("pad            : %08x\n", imageInfo->pad);
-        //printf("\n");
     }
-    
-    if(isIOS9){
-        printf("path name  : %s\n", searchStr9);
-    } else {
-        printf("path name  : %s\n", searchStr8);
-    }
-    printf("pathOffset : %016llx\n", pathOffset);
-    printf("pathCount  : %d\n", pathCount);
-    
+
     imageInfo = buf + header->imagesOffset;
     printf("\n");
+
+    printf("path name  : %s\n", libmis);
+    printf("libmisOffset : %08llx\n", libmisoffset);
+    printf("pathCount  : %d\n", pathCount);
+
+    uint32_t libmisheaderloc;
+    uint64_t imgoffset = libmisoffset;
+    // go back until we get to the start of the dylib header
+    while (1)
+    {
+        uint32_t value = *(uint32_t *)(buf + imgoffset);
+        if (value == MH_MAGIC_64)
+        {
+            libmisheaderloc = imgoffset;
+            break;
+        }
+        imgoffset -= 4;
+    }
+
+    printf("LIBMIS HEADER: %08x\n", libmisheaderloc);
+
+    struct mach_header_64 *libmisheader = buf + libmisheaderloc;
+    uint32_t offset = 0;
+    uint64_t libmisExportTableOffset;
+    uint32_t libmisExportTableSize;
+    for (int i = 0; i < libmisheader->ncmds; i++)
+    {
+        struct load_command *lc = buf + libmisheaderloc + sizeof(struct mach_header_64) + offset;
+        if (lc->cmd == LC_DYLD_INFO_ONLY)
+        {
+            struct dyld_info_command *dyc = (struct dyld_info_command *)lc;
+            printf("LIBMIS EXPORT TABLE %08x\n", dyc->export_off);
+            printf("LIBMIS EXPORT TABLE SIZE %08x\n", dyc->export_size);
+            libmisExportTableOffset = dyc->export_off;
+            libmisExportTableSize = dyc->export_size;
+            break;
+        }
+        offset += lc->cmdsize;
+    }
+    uint64_t exportTableMVS;
+    if(isIOS9) {
+        exportTableMVS = 0x5E2;
+    } else {
+        exportTableMVS = 0x53A;
+    }
+    uint64_t exportTableOffset = libmisExportTableOffset + exportTableMVS;
+
+    // find mov x0 #0 ret gadget
+    //  0xd2800000 -> 00 00 80 d2
+    //  0xd2800002 -> 02 00 80 D2
+    imgoffset = libmisoffset;
+    uint64_t MOV_R0_0__BX_LR;
+    
+    while (1)
+    {
+        imgoffset++;
+        if (insn_is_movz_x0_0(buf + imgoffset))
+        {
+            if (insn_is_ret(buf + imgoffset + 4))
+            {
+                MOV_R0_0__BX_LR = 0x180000000 + imgoffset;
+                break;
+            }
+        }
+    }
+
+    // misvalidatesignature
+    imgoffset = libmisoffset;
+    uint64_t MISValidateSignature;
+    while (1)
+    {
+        imgoffset++;
+        if (insn_is_movz_x2_0(buf + imgoffset))
+        {
+            if (insn_is_b_64(buf + imgoffset + 4))
+            {
+                MISValidateSignature = 0x180000000 + imgoffset;
+                break;
+            }
+        }
+    }
     
     // 16k?
     uint64_t pad = 0x4000;
