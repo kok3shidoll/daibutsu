@@ -2,7 +2,7 @@
  * copyright (c) 2021/04/12 dora2ios
  * license : MIT
  *
- * build : gcc haxx.c -DN42_12H321 -o haxx
+ * build : gcc haxx.c (-DIOS9) -o haxx
  */
 
 #include <stdint.h>
@@ -88,7 +88,11 @@ struct dyld_cache_image_info
 uint64_t exportTableOffset;
 uint64_t MISValidateSignature;
 uint64_t MOV_R0_0__BX_LR;
-int isIOS9;
+#ifdef IOS9
+    int isIOS9=1;
+#else
+    int isIOS9=0;
+#endif
 
 int main(int argc, char **argv)
 {

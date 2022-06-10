@@ -3,6 +3,7 @@
  * copyright (c) 2022/01/11 dora2ios
  * license : Anyone but do not abuse.
  *
+ * build : gcc haxx.c (-DIOS9) -o haxx
  */
 
 #include <stdint.h>
@@ -12,6 +13,7 @@
 #include <assert.h>
 #include <stddef.h>
 #include <mach-o/loader.h>
+#include <mach-o/nlist.h>
 
 static int insn_is_movz_x0_0(uint32_t *i)
 {
@@ -106,16 +108,13 @@ struct dyld_cache_image_info
     uint32_t    pad;
 };
 
-// n71m 9.0.2
-uint64_t exportTableOffset;
-uint64_t MISValidateSignature;
-uint64_t MOV_R0_0__BX_LR;
-int isIOS9=1;
-// no idea
-//#include "offset.h"
+#ifdef IOS9
+    int isIOS9=1;
+#else
+    int isIOS9=0;
+#endif
 
 int main(int argc, char **argv){
-    
     if(argc != 3){
         printf("%s <in> <out>\n", argv[0]);
         return 0;
@@ -218,11 +217,33 @@ int main(int argc, char **argv){
 
     struct mach_header_64 *libmisheader = buf + libmisheaderloc;
     uint32_t offset = 0;
+    uint64_t MISValidateSignature;
     uint64_t libmisExportTableOffset;
     uint32_t libmisExportTableSize;
     for (int i = 0; i < libmisheader->ncmds; i++)
     {
         struct load_command *lc = buf + libmisheaderloc + sizeof(struct mach_header_64) + offset;
+        if (lc->cmd == LC_SYMTAB)
+         {
+             struct symtab_command *stc = (struct symtab_command *)lc;
+             uint64_t stringtableoffset = (uint64_t)(buf + stc->stroff);
+             uint64_t stringtablesize = stc->strsize;
+             uint64_t symtableoffset = (uint64_t) (buf + stc->symoff);
+             uint64_t symentries = stc->nsyms;
+             for (int i = 0; i < symentries; ++i)
+             {
+                 struct nlist_64 *nl = (struct nlist_64 *)(symtableoffset + sizeof(struct nlist_64) * i);
+                 if ((nl->n_type & N_TYPE) != N_UNDF)
+                 {
+                     char *symbol = (char *)(stringtableoffset + nl->n_un.n_strx);
+                     if (strcmp(symbol, "_MISValidateSignature") == 0)
+                     {
+                         printf("MISVALIDATESIGNATURE %08llx\n", nl->n_value);
+                         MISValidateSignature = nl->n_value;
+                     }
+                 }
+             }
+         }
         if (lc->cmd == LC_DYLD_INFO_ONLY)
         {
             struct dyld_info_command *dyc = (struct dyld_info_command *)lc;
@@ -230,7 +251,6 @@ int main(int argc, char **argv){
             printf("LIBMIS EXPORT TABLE SIZE %08x\n", dyc->export_size);
             libmisExportTableOffset = dyc->export_off;
             libmisExportTableSize = dyc->export_size;
-            break;
         }
         offset += lc->cmdsize;
     }
@@ -241,6 +261,8 @@ int main(int argc, char **argv){
         exportTableMVS = 0x53A;
     }
     uint64_t exportTableOffset = libmisExportTableOffset + exportTableMVS;
+
+    printf("exportTableOffset %08llx\n", exportTableOffset);
 
     // find mov x0 #0 ret gadget
     //  0xd2800000 -> 00 00 80 d2
@@ -255,27 +277,13 @@ int main(int argc, char **argv){
         {
             if (insn_is_ret(buf + imgoffset + 4))
             {
-                MOV_R0_0__BX_LR = 0x180000000 + imgoffset;
+                MOV_R0_0__BX_LR = mapInfo->address + imgoffset;
                 break;
             }
         }
     }
 
-    // misvalidatesignature
-    imgoffset = libmisoffset;
-    uint64_t MISValidateSignature;
-    while (1)
-    {
-        imgoffset++;
-        if (insn_is_movz_x2_0(buf + imgoffset))
-        {
-            if (insn_is_b_64(buf + imgoffset + 4))
-            {
-                MISValidateSignature = 0x180000000 + imgoffset;
-                break;
-            }
-        }
-    }
+    printf("MOV R0, #0 BX LR %08llx\n", MOV_R0_0__BX_LR);
     
     // 16k?
     uint64_t pad = 0x4000;
