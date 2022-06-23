@@ -3,7 +3,7 @@
  * copyright (c) 2022/01/11 dora2ios
  * license : Anyone but do not abuse.
  *
- * build : gcc (-DIOS9) (-DARM64) haxx.c export_stuff/export_stuff.c -Iexport_stuff/ -o haxx
+ * build : gcc (-DIOS8) (-DARM64) haxx.c export_stuff/export_stuff.c -Iexport_stuff/ -o haxx
  */
 
 #include <stdint.h>
@@ -123,10 +123,10 @@ struct dyld_cache_image_info
     uint32_t pad;
 };
 
-#ifdef IOS9
-int isIOS9 = 1;
+#ifdef IOS8
+int isIOS8 = 1;
 #else
-int isIOS9 = 0;
+int isIOS8 = 0;
 #endif
 
 #ifdef ARM64
@@ -190,13 +190,13 @@ int main(int argc, char **argv)
     const char *searchStr9 = "/System/Library/Frameworks/CoreGraphics.framework/Resources/libCGCorePDF.dylib";
 
     uint64_t pathOffset;
-    if (isIOS9)
+    if (isIOS8)
     {
-        pathOffset = (uint64_t)memmem(buf, sz, searchStr9, strlen(searchStr9));
+        pathOffset = (uint64_t)memmem(buf, sz, searchStr9, strlen(searchStr8));
     }
     else
     {
-        pathOffset = (uint64_t)memmem(buf, sz, searchStr8, strlen(searchStr8));
+        pathOffset = (uint64_t)memmem(buf, sz, searchStr8, strlen(searchStr9));
     }
     pathOffset -= (uint64_t)buf;
     uint64_t libmisoffset;
@@ -564,6 +564,7 @@ int main(int argc, char **argv)
 
     *(uint8_t *)(newBuf + patch_point) = newval[0];
     *(uint8_t *)(newBuf + patch_point + 1) = newval[1];
+    printf("newTable: %02x%02x", newval[0], newval[1]);
     printf("\n");
 
     /* end */
