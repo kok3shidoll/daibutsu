@@ -96,6 +96,55 @@ typedef struct
 static mach_port_t tfp0 = 0;
 static int isA6 = 0;
 
+static void suspend_all_threads() {
+    thread_act_t other_thread, current_thread;
+    unsigned int thread_count;
+    thread_act_array_t thread_list;
+    
+    current_thread = mach_thread_self();
+    int result = task_threads(mach_task_self(), &thread_list, &thread_count);
+    if (result == -1) {
+        //exit(1);
+    }
+    if (!result && thread_count) {
+        for (unsigned int i = 0; i < thread_count; ++i) {
+            other_thread = thread_list[i];
+            if (other_thread != current_thread) {
+                int kr = thread_suspend(other_thread);
+                if (kr != KERN_SUCCESS) {
+                    //mach_error("thread_suspend:", kr);
+                    //exit(1);
+                }
+            }
+        }
+    }
+}
+
+static void resume_all_threads() {
+    thread_act_t other_thread, current_thread;
+    unsigned int thread_count;
+    thread_act_array_t thread_list;
+    
+    current_thread = mach_thread_self();
+    int result = task_threads(mach_task_self(), &thread_list, &thread_count);
+    if (result == -1) {
+        //exit(1);
+    }
+    if (!result && thread_count) {
+        for (unsigned int i = 0; i < thread_count; ++i) {
+            other_thread = thread_list[i];
+            if (other_thread != current_thread) {
+                int kr = thread_resume(other_thread);
+                if (kr != KERN_SUCCESS) {
+                    //mach_error("thread_suspend:", kr);
+                    //exit(1);
+                }
+            }
+        }
+    }
+}
+
+
 static void dumpData(void *buf, size_t size)
 {
     for(int i = 0; i < size; i += 4)
@@ -851,6 +900,8 @@ static void patch_page_table(int hasTFP0, uint32_t tte_virt, uint32_t tte_phys, 
 static void do_exploit(uint32_t kernel_base)
 {
     
+    suspend_all_threads();
+    usleep(10000);
 retry:
     LOG("running CVE-2016-4656");
     
@@ -919,7 +970,7 @@ retry:
             memset(&pExploit, '\0', 128);
             memset(&data, '\0', 4096);
             bufpos = 0;
-            usleep(10000);
+            usleep(250000);
             goto retry;
         }
     }
@@ -1039,6 +1090,8 @@ retry:
         usleep(100000);
     }
 #endif /* KPATCH */
+    resume_all_threads();
+    usleep(10000);
 }
 
 static void dump_kernel(vm_address_t kernel_base, uint8_t *dest, size_t ksize)
