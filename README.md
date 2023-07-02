@@ -1,5 +1,6 @@
 # daibutsu
-8.4.1-9.1 untether (for 32-bit iOS)  
+7.0-9.1 untether only (for 32/64 bit iOS)  
+8.4.1 Jailbreak for 32 bits.
 
 ## 警告
 日本国内において、及び日本国内向けに悪用することを禁じます。
@@ -14,13 +15,14 @@ Change dyld_shared_cache and overrides _MISValidateSignature in libmis.dylib alw
 
 #### build&&run
 ```
-gcc haxx.c -D{platform}_{build} -o haxx
+gcc (-DIOS8) (-DARM64) haxx.c export_stuff/export_stuff.c -Iexport_stuff/ -o haxx
 ./haxx dyld_shared_cache_[armv7s] dyld_shared_cache_[armv7s]_hack
 ```
 
 - Arch  
   - A5&A5rA: `armv7`  
   - A6: `armv7s`  
+  - A7/A8/A9: `arm64`
 
 ### helper
 For loading substrate.  
@@ -47,3 +49,4 @@ old-style jailbreak untether.
 [init] 2021/04/07  by dora2ios  
 [update] 2021/04/10  by dora2ios  
 [update] 2021/05/01  by dora2ios  
+[update] 2022/06/23  by TheRealClarity  
