@@ -17,7 +17,7 @@ gcc -DARM64 haxx_override.c export_stuff/export_stuff.c -Iexport_stuff/ -o haxx_
 ```
 
 ## note
-ios 8 only.
-The dsc specified in the argument is overwritten. please be sure to make backups in the test environment.
-This code is still dirty. many error handles are not yet implemented.
-please use ../dsc_patch and see if the same is generated.
+- ios 8 only.  
+- The dsc specified in the argument is overwritten. please be sure to make backups in the test environment.  
+- This code is still dirty. many error handles are not yet implemented.  
+- please use ../dsc_patch and see if the same is generated.  
