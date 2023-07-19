@@ -192,11 +192,11 @@ int main(int argc, char **argv)
     uint64_t pathOffset;
     if (isIOS8)
     {
-        pathOffset = (uint64_t)memmem(buf, sz, searchStr9, strlen(searchStr8));
+        pathOffset = (uint64_t)memmem(buf, sz, searchStr8, strlen(searchStr8));
     }
     else
     {
-        pathOffset = (uint64_t)memmem(buf, sz, searchStr8, strlen(searchStr9));
+        pathOffset = (uint64_t)memmem(buf, sz, searchStr9, strlen(searchStr9));
     }
     pathOffset -= (uint64_t)buf;
     uint64_t libmisoffset;
