@@ -12,7 +12,9 @@ gcc -DARM64 haxx_override.c export_stuff/export_stuff.c -Iexport_stuff/ -o haxx_
 ```
 
 ## how to use
-./haxx_override path/to/dsc
+```
+./haxx_override <path/to/dsc>
+```
 
 ## note
 ios 8 only.
