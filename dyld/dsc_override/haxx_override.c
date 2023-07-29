@@ -199,6 +199,10 @@ int main(int argc, char **argv)
     DEVLOG("codeSignatureSize   : %016llx", header->codeSignatureSize);
     printf("\n");
     
+    if(header->mappingCount != 3) {
+        ERR("Patched dyld_shared_cache detected, bailing out.");
+        return -1;
+    }
     fileread(fp, header->codeSignatureOffset, 8, cs_buf);
     
     struct dyld_cache_mapping_info *mapInfo = header_buf + header->mappingOffset;
