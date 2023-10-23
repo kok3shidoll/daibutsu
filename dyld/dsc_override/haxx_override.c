@@ -9,10 +9,7 @@
  */
 
 #include <errno.h>
-#include <stdint.h>
 #include <stdio.h>
-#include <string.h>
-#include <assert.h>
 #include <stddef.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -22,10 +19,6 @@
 #include <mach/mach.h>
 #include "export_stuff/export_stuff.h"
 #include "plog.h"
-
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <mach/mach.h>
 
 static void fileread(int *fd, uint32_t offset, size_t rdsize, void* buf)
 {
