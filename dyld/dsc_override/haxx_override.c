@@ -8,24 +8,43 @@
  *
  */
 
+#include <errno.h>
 #include <stdint.h>
-#include <string.h>
-#include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 #include <assert.h>
 #include <stddef.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 #include <mach-o/loader.h>
 #include <mach-o/nlist.h>
+#include <mach/mach.h>
 #include "export_stuff/export_stuff.h"
 #include "plog.h"
 
-static void fileread(FILE *fp, uint32_t offset, size_t rdsize, void* buf)
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <mach/mach.h>
+
+static void fileread(int *fd, uint32_t offset, size_t rdsize, void* buf)
 {
     if(!buf) return;
-    memset(buf, 0, rdsize);
-    fseek(fp, offset, SEEK_SET);
-    fread(buf, rdsize, 1, fp);
+    //thx zhuowei
+    if (vm_allocate(mach_task_self(), (vm_address_t*)(buf), rdsize, VM_FLAGS_ANYWHERE | VM_FLAGS_NO_CACHE) != KERN_SUCCESS) {
+        ERR("vm_allocate failed %d", errno);
+    }
+    if (pread(*fd, buf, rdsize, offset) <= 0) {
+        ERR("pread failed %d", errno);
+    }
+}
+
+static void filewrite(int *fd, uint32_t offset, size_t rdsize, void* buf)
+{
+    if(!buf) return;
+    if (pwrite(*fd, buf, rdsize, offset) <= 0) {
+        ERR("pwrite failed %d", errno);
+    }
 }
 
 #ifdef ARM64
@@ -128,20 +147,28 @@ int main(int argc, char **argv)
     
     char *infile = argv[1];
     
-    FILE *fp = fopen(infile, "r");
-    if (!fp)
+    struct stat file_stat;
+    if (stat(infile, &file_stat)) {
+        ERR("Error: stat failed for dyld shared cache");
+        return -1;
+    }
+    
+    int fd = open(infile, O_RDONLY);
+    if (fd < 0)
     {
         ERR("opening %s", infile);
         return -1;
     }
     
+    if (fcntl(fd, F_NOCACHE, 1) == -1)
+    {
+        ERR("nocache failed %d", errno);
+        return -1;
+    }
+    
     void  *header_buf       = NULL;
     size_t header_size      = 0x8000;
-    size_t image_full_size  = 0;
-    
-    fseek(fp, 0, SEEK_END);
-    image_full_size = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
+    size_t image_full_size  = file_stat.st_size;
     
     void *fake_header_buf       = NULL;
     void *fake_data_buf         = NULL;
@@ -181,11 +208,11 @@ int main(int argc, char **argv)
        || !tmpBuf)
     {
         ERR("allocating header");
-        fclose(fp);
+        close(fd);
         return -1;
     }
     
-    fileread(fp, 0, header_size, header_buf);
+    fileread(&fd, 0, header_size, header_buf);
     
     struct dyld_cache_header *header = header_buf;
     
@@ -196,14 +223,13 @@ int main(int argc, char **argv)
     DEVLOG("imagesCount         : %u", header->imagesCount);
     DEVLOG("dyldBaseAddress     : %016llx", header->dyldBaseAddress);
     DEVLOG("codeSignatureOffset : %016llx", header->codeSignatureOffset);
-    DEVLOG("codeSignatureSize   : %016llx", header->codeSignatureSize);
-    printf("\n");
+    DEVLOG("codeSignatureSize   : %016llx\n", header->codeSignatureSize);
     
     if(header->mappingCount != 3) {
         ERR("Patched dyld_shared_cache detected, bailing out.");
         return -1;
     }
-    fileread(fp, header->codeSignatureOffset, 8, cs_buf);
+    fileread(&fd, header->codeSignatureOffset, 8, cs_buf);
     
     struct dyld_cache_mapping_info *mapInfo = header_buf + header->mappingOffset;
     for (int i = 0; i < header->mappingCount; i++)
@@ -215,7 +241,6 @@ int main(int argc, char **argv)
         DEVLOG("maxProt    : %08x", mapInfo->maxProt);
         DEVLOG("initProt   : %08x", mapInfo->initProt);
         mapInfo++;
-        printf("\n");
     }
     mapInfo = header_buf + header->mappingOffset;
     
@@ -234,7 +259,7 @@ int main(int argc, char **argv)
     void* pos = (void*)(imageInfo);
     uint32_t infooff = (uintptr_t)(pos) - (uintptr_t)(header_buf);
     
-    fileread(fp, infooff, sizeof(struct dyld_cache_image_info), imageInfoBuf);
+    fileread(&fd, infooff, sizeof(struct dyld_cache_image_info), imageInfoBuf);
     imageInfo = imageInfoBuf;
     
     for (int i = 0; i < header->imagesCount; i++)
@@ -246,11 +271,10 @@ int main(int argc, char **argv)
         DEVLOG("pathFileOffset : %08x", imageInfo->pathFileOffset);
         
         // haxx
-        fileread(fp, imageInfo->pathFileOffset, 255, tmpBuf);
+        fileread(&fd, imageInfo->pathFileOffset, 255, tmpBuf);
         DEVLOG("path           : %s", (char *)tmpBuf);
         
-        DEVLOG("pad            : %08x", imageInfo->pad);
-        printf("\n");
+        DEVLOG("pad            : %08x\n", imageInfo->pad);
         if (strcmp(libmis, (char *)tmpBuf) == 0)
         {
             libmisoffset = imageInfo->pathFileOffset;
@@ -261,12 +285,11 @@ int main(int argc, char **argv)
         }
         
         infooff += sizeof(struct dyld_cache_image_info);
-        fileread(fp, infooff, sizeof(struct dyld_cache_image_info), imageInfoBuf);
+        fileread(&fd, infooff, sizeof(struct dyld_cache_image_info), imageInfoBuf);
         imageInfo = imageInfoBuf;
     }
     
     imageInfo = header_buf + header->imagesOffset;
-    printf("\n");
     
     LOG("path name  : %s", libmis);
     LOG("libmisOffset : %08llx", libmisoffset);
@@ -277,7 +300,7 @@ int main(int argc, char **argv)
     // go back until we get to the start of the dylib header
     while (1)
     {
-        fileread(fp, imgoffset, 4, tmpBuf);
+        fileread(&fd, imgoffset, 4, tmpBuf);
         uint32_t *value = (uint32_t *)tmpBuf;
         if (value[0] == MAGIC)
         {
@@ -291,7 +314,7 @@ int main(int argc, char **argv)
     
     
     
-    fileread(fp, libmisheaderloc, sizeof(struct HEADER), libmis_hd_buf);
+    fileread(&fd, libmisheaderloc, sizeof(struct HEADER), libmis_hd_buf);
     struct HEADER *libmisheader = libmis_hd_buf;
     
     uint32_t offset = 0;
@@ -300,21 +323,21 @@ int main(int argc, char **argv)
     uint32_t libmisExportTableSize;
     for (int i = 0; i < libmisheader->ncmds; i++)
     {
-        fileread(fp, libmisheaderloc + sizeof(struct HEADER) + offset, sizeof(struct load_command), libmis_lc_buf);
+        fileread(&fd, libmisheaderloc + sizeof(struct HEADER) + offset, sizeof(struct load_command), libmis_lc_buf);
         struct load_command *lc = libmis_lc_buf;
         if (lc->cmd == LC_SYMTAB)
         {
-            fileread(fp, libmisheaderloc + sizeof(struct HEADER) + offset, sizeof(struct symtab_command), libmis_sc_buf);
+            fileread(&fd, libmisheaderloc + sizeof(struct HEADER) + offset, sizeof(struct symtab_command), libmis_sc_buf);
             struct symtab_command *stc = libmis_sc_buf; //(struct symtab_command *)lc;
             uint64_t stringtablesize = stc->strsize;
             uint64_t symentries = stc->nsyms;
             for (int i = 0; i < symentries; ++i)
             {
-                fileread(fp, (stc->symoff + sizeof(struct NLIST) * i), sizeof(struct NLIST), sym_tab_buf);
+                fileread(&fd, (stc->symoff + sizeof(struct NLIST) * i), sizeof(struct NLIST), sym_tab_buf);
                 struct NLIST *nl = (struct NLIST *)(sym_tab_buf);
                 if ((nl->n_type & N_TYPE) != N_UNDF)
                 {
-                    fileread(fp, stc->stroff + nl->n_un.n_strx, strlen("_MISValidateSignature") + 1, tmpBuf);
+                    fileread(&fd, stc->stroff + nl->n_un.n_strx, strlen("_MISValidateSignature") + 1, tmpBuf);
                     char *symbol = (char *)(tmpBuf);
                     if (strcmp(symbol, "_MISValidateSignature") == 0)
                     {
@@ -326,7 +349,7 @@ int main(int argc, char **argv)
         }
         if (lc->cmd == LC_DYLD_INFO_ONLY)
         {
-            fileread(fp, libmisheaderloc + sizeof(struct HEADER) + offset, sizeof(struct dyld_info_command), libmis_dyc_buf);
+            fileread(&fd, libmisheaderloc + sizeof(struct HEADER) + offset, sizeof(struct dyld_info_command), libmis_dyc_buf);
             struct dyld_info_command *dyc = libmis_dyc_buf; //(struct dyld_info_command *)lc;
             LOG("%s EXPORT TABLE     : %08x", libmis, dyc->export_off);
             LOG("%s EXPORT TABLE SIZE: %08x", libmis, dyc->export_size);
@@ -345,7 +368,7 @@ int main(int argc, char **argv)
     while (1)
     {
         imgoffset++;
-        fileread(fp, imgoffset, 8, tmpBuf);
+        fileread(&fd, imgoffset, 8, tmpBuf);
 #ifdef ARM64
         if (insn_is_movz_x0_0(tmpBuf))
         {
@@ -367,7 +390,7 @@ int main(int argc, char **argv)
     LOG("RET0 GADGET: %08llx", MOV_R0_0__BX_LR);
     
     uint16_t mvsdataaddressoffset;
-    fileread(fp, libmisExportTableOffset, 0x4000, tmpBuf);
+    fileread(&fd, libmisExportTableOffset, 0x4000, tmpBuf);
     findInExportTable(tmpBuf, tmpBuf, "", &mvsdataaddressoffset);
     LOG("da real offset: %x", mvsdataaddressoffset);
     uint64_t exportTableOffset = libmisExportTableOffset + mvsdataaddressoffset;
@@ -419,7 +442,7 @@ int main(int argc, char **argv)
     uint64_t newDataOffset = ((image_full_size & ~0x3fff) + pad + headerSize);
     LOG("memcpy::data   [sz: %016llx] : %016llx -> %016llx", dataSize, dataOffset, newDataOffset);
     //memcpy(newBuf + newDataOffset, buf + dataOffset, dataSize);
-    fileread(fp, dataOffset, 0x4000, tmpBuf);
+    fileread(&fd, dataOffset, 0x4000, tmpBuf);
     memcpy(fake_data_buf, tmpBuf, 0x4000);
     printf("\n");
     
@@ -725,7 +748,7 @@ int main(int argc, char **argv)
     printf("\n");
     
     // 7, change export table
-    fileread(fp, exportTableOffset, 0x4000, tmpBuf);
+    fileread(&fd, exportTableOffset, 0x4000, tmpBuf);
     uint16_t origTable = *(uint16_t *)(tmpBuf);
     LOG("origTable: %04x", origTable);
     
@@ -746,15 +769,21 @@ int main(int argc, char **argv)
     LOG("newTable: %02x%02x", newval[0], newval[1]);
     printf("\n");
     
-    // close fp
-    fclose(fp);
+    // close fd
+    close(fd);
     
     // re-open
     LOG("write: %s", infile);
-    FILE *out = fopen(infile, "r+");
-    if (!out)
+    int out = open(infile, O_RDWR);
+    if (out < 0)
     {
         ERR("opening %s", infile);
+        return -1;
+    }
+    
+    if (fcntl(out, F_NOCACHE, 1) == -1)
+    {
+        ERR("nocache failed %d", errno);
         return -1;
     }
     
@@ -763,21 +792,16 @@ int main(int argc, char **argv)
     
     // write!
     // header -> fakeheader
-    fseek(out, 0, SEEK_SET);
-    fwrite(fake_header_buf, headerSize, 1, out);
+    filewrite(&out, 0, headerSize, fake_header_buf);
     
     // write!!
     // newmap1 -> original header
-    fseek(out, newHeaderOffset, SEEK_SET);
-    fwrite(header_buf, headerSize, 1, out);
+    filewrite(&out, newHeaderOffset, headerSize, header_buf);
     
     // write!!!
     // newmap2 -> fakedata
-    fseek(out, newDataOffset, SEEK_SET);
-    fwrite(fake_data_buf, dataSize, 1, out);
-    
-    fflush(out);
-    fclose(out);
+    filewrite(&out, newDataOffset, dataSize, fake_data_buf);
+    close(out);
     
     // free
     if(header_buf) free(header_buf);
