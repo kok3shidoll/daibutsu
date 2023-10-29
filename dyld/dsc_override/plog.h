@@ -20,7 +20,7 @@ do { \
 printf("[haxx:debug] "x"\n", ##__VA_ARGS__); \
 } while(0)
 # else
-#  define DEVLOG(x, ...)
+#  define DEVLOG(...)
 # endif
 
 #endif /* PLOG_H */
