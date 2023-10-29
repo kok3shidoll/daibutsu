@@ -11,24 +11,26 @@
 #include <errno.h>
 #include <stdio.h>
 #include <stddef.h>
+#include <string.h>
 #include <unistd.h>
-#include <fcntl.h>
-#include <sys/stat.h>
 #include <mach-o/loader.h>
 #include <mach-o/nlist.h>
-#include <mach/mach.h>
 #include "export_stuff/export_stuff.h"
 #include "plog.h"
+
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <mach/mach.h>
 
 static void fileread(int *fd, uint32_t offset, size_t rdsize, void* buf)
 {
     if(!buf) return;
     //thx zhuowei
     if (vm_allocate(mach_task_self(), (vm_address_t*)(buf), rdsize, VM_FLAGS_ANYWHERE | VM_FLAGS_NO_CACHE) != KERN_SUCCESS) {
-        ERR("vm_allocate failed %d", errno);
+        ERR("vm_allocate failed %s", strerror(errno));
     }
     if (pread(*fd, buf, rdsize, offset) <= 0) {
-        ERR("pread failed %d", errno);
+        ERR("pread failed %s", strerror(errno));
     }
 }
 
@@ -36,7 +38,7 @@ static void filewrite(int *fd, uint32_t offset, size_t rdsize, void* buf)
 {
     if(!buf) return;
     if (pwrite(*fd, buf, rdsize, offset) <= 0) {
-        ERR("pwrite failed %d", errno);
+        ERR("pwrite failed %s", strerror(errno));
     }
 }
 
@@ -130,6 +132,15 @@ struct dyld_cache_image_info
 #define NLIST nlist
 #endif
 
+#ifndef UNTETHER
+int haxx(void)
+{
+#ifdef ARM64
+    char *infile = "/System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64";
+#else
+    char *infile = "/System/Library/Caches/com.apple.dyld/dyld_shared_cache_armv7s"
+#endif
+#else
 int main(int argc, char **argv)
 {
     if (argc != 2)
@@ -139,6 +150,7 @@ int main(int argc, char **argv)
     }
     
     char *infile = argv[1];
+#endif
     
     struct stat file_stat;
     if (stat(infile, &file_stat)) {
@@ -153,9 +165,8 @@ int main(int argc, char **argv)
         return -1;
     }
     
-    if (fcntl(fd, F_NOCACHE, 1) == -1)
-    {
-        ERR("nocache failed %d", errno);
+    if (fcntl(fd, F_NOCACHE, 1) == -1) {
+        ERR("nocache failed %s", strerror(errno));
         return -1;
     }
     
@@ -172,8 +183,6 @@ int main(int argc, char **argv)
     void *libmis_lc_buf         = NULL;
     void *libmis_sc_buf         = NULL;
     void *libmis_dyc_buf        = NULL;
-    void *libmis_dyldinfo_buf   = NULL;
-    void *imageStrBuf           = NULL;
     void *sym_tab_buf           = NULL;
     
     header_buf      = malloc(header_size);
@@ -220,7 +229,7 @@ int main(int argc, char **argv)
     
     if(header->mappingCount != 3) {
         ERR("Patched dyld_shared_cache detected, bailing out.");
-        return -1;
+        return 1;
     }
     fileread(&fd, header->codeSignatureOffset, 8, cs_buf);
     
@@ -322,7 +331,6 @@ int main(int argc, char **argv)
         {
             fileread(&fd, libmisheaderloc + sizeof(struct HEADER) + offset, sizeof(struct symtab_command), libmis_sc_buf);
             struct symtab_command *stc = libmis_sc_buf; //(struct symtab_command *)lc;
-            uint64_t stringtablesize = stc->strsize;
             uint64_t symentries = stc->nsyms;
             for (int i = 0; i < symentries; ++i)
             {
@@ -774,9 +782,8 @@ int main(int argc, char **argv)
         return -1;
     }
     
-    if (fcntl(out, F_NOCACHE, 1) == -1)
-    {
-        ERR("nocache failed %d", errno);
+    if (fcntl(out, F_NOCACHE, 1) == -1) {
+        ERR("nocache failed %s", strerror(errno));
         return -1;
     }
     
